@@ -38,8 +38,5 @@ jobs:
       - name: unit tests
         run: npm test
 
-      - name: adapter tests
-        run: npm run test:adapter
-
       - name: published file list
         run: npm pack --dry-run

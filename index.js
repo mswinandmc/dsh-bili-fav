@@ -227,8 +227,8 @@ export function apply(ctx) {
   }
 
   function deliveryLabel(mode) {
-    if (mode === 'channel') return '只第三方渠道'
-    if (mode === 'both') return '收藏 + 渠道'
+    if (mode === 'channel') return '只 QQ'
+    if (mode === 'both') return '收藏 + QQ'
     return '只收藏'
   }
 
@@ -329,10 +329,10 @@ export function apply(ctx) {
       logTail: readTail(files.log, 1400),
       note: !api.loggedIn
         ? mode === 'channel'
-          ? '第三方渠道模式不需要 B站登录：可以用游客推荐流；个性化推荐和字幕仍需要登录。'
+          ? 'QQ 模式不需要 B站登录：可以用游客推荐流；个性化推荐和字幕仍需要登录。'
           : '未登录时可以「试刷」：用游客推荐流让模型挑一遍，不会写入收藏夹。'
         : mode !== 'favorite' && list.length === 0
-          ? '还没有可用的第三方投递渠道；安装 dsh-bili-fav-qq 或其它渠道插件后再刷新。'
+          ? '还没有可用的 QQ 投递渠道；安装 dsh-bili-fav-qq 后再刷新。'
           : mode !== 'favorite' && channel && !channel.available
             ? `渠道「${channel.label}」当前不可用；检查它依赖的工具/服务是否在线。`
             : '',
@@ -736,7 +736,7 @@ export function apply(ctx) {
             ok: false,
             started: false,
             reason: 'no-channel',
-            message: '请先在偏好里选择一个第三方投递渠道。',
+            message: '请先在偏好里选择一个 QQ 投递渠道。',
           }
         }
         if (!channels.get(config.channelId) || !channelDescriptor) {
@@ -1071,7 +1071,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_status',
     description:
-      '查看「B站自主刷片」的状态：是否已登录 B站、模型是谁、投递方式、目标收藏夹、已注册的第三方渠道、最近一轮它点开了什么、收藏/推送了什么。',
+      '查看「B站自主刷片」的状态：是否已登录 B站、模型是谁、投递方式、目标收藏夹、已注册的 QQ 渠道、最近一轮它点开了什么、收藏/推送了什么。',
     parameters: { type: 'object', properties: {} },
     async execute() {
       const status = publicStatus()
@@ -1117,7 +1117,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_run',
     description:
-      '让模型自己刷一轮 B站推荐流，按它自己的判断挑片，并按设置页里的投递方式处理：只收藏、只通过第三方渠道推送、或两者都要。收藏需要 B站登录；渠道推送需要安装并启用对应的渠道插件。',
+      '让模型自己刷一轮 B站推荐流，按它自己的判断挑片，并按设置页里的投递方式处理：只收藏、只通过 QQ 推送、或两者都要。收藏需要 B站登录；QQ 推送需要安装并启用 dsh-bili-fav-qq。',
     parameters: {
       type: 'object',
       properties: {
@@ -1157,7 +1157,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_channels',
     description:
-      '查看已注册的第三方投递渠道；action=list 只读列出渠道和配置字段；action=targets 让当前渠道读取可用目标；action=test 让当前渠道发送一条测试消息。',
+      '查看已注册的 QQ 投递渠道；action=list 只读列出渠道和配置字段；action=targets 让当前渠道读取可用目标；action=test 让当前渠道发送一条测试消息。',
     parameters: {
       type: 'object',
       properties: {

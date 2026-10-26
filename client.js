@@ -236,8 +236,8 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
     }
 
     function deliveryLabel(mode) {
-      if (mode === 'channel') return '只第三方渠道'
-      if (mode === 'both') return '收藏 + 渠道'
+      if (mode === 'channel') return '只 QQ'
+      if (mode === 'both') return '收藏 + QQ'
       return '只收藏'
     }
 
@@ -661,9 +661,9 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
       const modeNeedsFavorite = form.deliveryMode !== 'channel'
       const modeNeedsChannel = form.deliveryMode !== 'favorite'
       const MODES = [
-        ['favorite', '只收藏', '挑中的视频写进 B站收藏夹；不使用第三方渠道。'],
-        ['channel', '只第三方渠道', '把推荐清单交给选中的渠道；不写收藏夹。B站未登录也能用游客推荐流。'],
-        ['both', '两者都要', '收藏夹和第三方渠道都走；任意一路失败会标在记录里。'],
+        ['favorite', '只收藏', '挑中的视频写进 B站收藏夹；不使用 QQ。'],
+        ['channel', '只 QQ', '把推荐清单交给 QQ 渠道；不写收藏夹。B站未登录也能用游客推荐流。'],
+        ['both', '两者都要', '收藏夹和 QQ 都走；任意一路失败会标在记录里。'],
       ]
       const modeDescription = (MODES.find(([value]) => value === form.deliveryMode) || MODES[0])[2]
       return h(
@@ -771,7 +771,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
           h(
             'div',
             { 'data-bf-note': '' },
-            '挑完视频后怎么处理：只写 B站收藏夹、只交给第三方渠道，或者两边都做。渠道由独立插件注册。',
+            '挑完视频后怎么处理：只写 B站收藏夹、只交给 QQ，或者两边都做。QQ 渠道由独立适配器注册。',
           ),
           h(
             'div',
@@ -797,7 +797,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
           { 'data-bf-section': '' },
           h('div', { 'data-bf-label': '' }, '收藏到哪个收藏夹'),
           !modeNeedsFavorite
-            ? h('div', { 'data-bf-note': '', 'data-bf-warn': '' }, '当前是「只第三方渠道」，下面的收藏夹设置不会使用。')
+            ? h('div', { 'data-bf-note': '', 'data-bf-warn': '' }, '当前是「只 QQ」，下面的收藏夹设置不会使用。')
             : null,
           h('input', {
             'data-bf-input': '',
@@ -851,12 +851,12 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
           ? h(
               'div',
               { 'data-bf-section': '' },
-              h('div', { 'data-bf-label': '' }, '第三方渠道'),
+              h('div', { 'data-bf-label': '' }, 'QQ 渠道'),
               channels.length === 0
                 ? h(
                     'div',
                     { 'data-bf-note': '', 'data-bf-warn': '' },
-                    '还没有注册任何渠道。安装 dsh-bili-fav-qq（QQ）或其它渠道插件，然后刷新本页。',
+                    '还没有注册 QQ 渠道。安装 dsh-bili-fav-qq，然后刷新本页。',
                   )
                 : h(
                     React.Fragment,
@@ -1005,7 +1005,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
               h(
                 'div',
                 { 'data-bf-note': '' },
-                '渠道由独立插件通过 biliFavChannels 注册；QQ 适配器是 dsh-bili-fav-qq。',
+                'QQ 渠道由独立适配器 dsh-bili-fav-qq 注册；Webhook 是核心内置渠道。',
               ),
             )
           : null,
@@ -1510,8 +1510,8 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                   h(
                     'div',
                     { 'data-bf-hint': '' },
-                    `${needsLogin ? (loggedIn ? '登录状态：正常' : '未登录：只第三方渠道可用，收藏需要登录') : '只第三方渠道：不需要 B站登录'}${
-                      needsChannel && !channelReady ? ' · 请先选好渠道并填必填项' : ''
+                    `${needsLogin ? (loggedIn ? '登录状态：正常' : '未登录：只 QQ 可用，收藏需要登录') : '只 QQ：不需要 B站登录'}${
+                      needsChannel && !channelReady ? ' · 请先选好 QQ 渠道并填必填项' : ''
                     }`,
                   ),
                 ),

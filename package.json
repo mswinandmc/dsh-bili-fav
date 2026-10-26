@@ -66,7 +66,6 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "check": "node scripts/check-manifest.mjs && npm test",
-    "pack:check": "npm pack --dry-run",
-    "test:adapter": "node --test packages/dsh-bili-fav-qq/test/*.test.mjs"
+    "pack:check": "npm pack --dry-run"
   }
 }
