@@ -235,7 +235,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         scan: Number(config.scan) || 20,
         deepRead: Number(config.deepRead) || 8,
         count: Number(config.count) || 5,
-        folderName: String(config.folderName || 'B站精选'),
+        folderName: String(config.folderName || '大肥鱼推荐'),
         readSubtitles: config.readSubtitles !== false,
         autoEnabled: Boolean(config.autoRun && config.autoRun.enabled),
         autoTime: String((config.autoRun && config.autoRun.time) || '12:30'),
@@ -673,7 +673,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
             'data-bf-input': '',
             value: form.folderName,
             maxLength: 20,
-            placeholder: 'B站精选',
+            placeholder: '大肥鱼推荐',
             onChange: (event) => update({ folderName: event.target.value }),
           }),
           h(
