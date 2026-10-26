@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 
 import { BiliApi, BiliError } from './lib/bili.js'
 import { createChannelRegistry } from './lib/channels.js'
+import { createWebhookChannel } from './lib/webhook.js'
 import { curate } from './lib/judge.js'
 import { qrSvg } from './lib/qr.js'
 import {
@@ -50,7 +51,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.2.0-beta.2'
+let VERSION = '0.2.0-beta.3'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -166,6 +167,11 @@ export function apply(ctx) {
   const files = paths(home)
   const log = makeLogger(files.log)
   const channels = createChannelRegistry()
+  try {
+    channels.register(createWebhookChannel())
+  } catch (error) {
+    log(`注册内置 Webhook 渠道失败：${errorMessage(error)}`)
+  }
   try {
     ctx.provide('biliFavChannels', channels)
   } catch (error) {
