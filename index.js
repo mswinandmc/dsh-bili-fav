@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { BiliApi, BiliError } from './lib/bili.js'
+import { createChannelRegistry } from './lib/channels.js'
 import { curate } from './lib/judge.js'
 import { qrSvg } from './lib/qr.js'
 import {
@@ -27,6 +28,7 @@ import {
   saveConfig,
   saveCredentials,
   saveState,
+  sanitizeChannelOptions,
   seenRecently,
 } from './lib/store.js'
 import {
@@ -48,7 +50,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.2.0-beta.1'
+let VERSION = '0.2.0-beta.2'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -147,10 +149,11 @@ function summarizeRun(run) {
     model: run.model,
     folder: run.folder,
     delivery: run.delivery,
-    qqSent: run.qqSent,
-    qqTarget: run.qqTarget,
-    qqMessage: run.qqMessage,
-    qqError: run.qqError,
+    channelId: run.channelId,
+    channelLabel: run.channelLabel,
+    channelSent: run.channelSent,
+    channelMessage: run.channelMessage,
+    channelError: run.channelError,
     note: run.note,
     error: run.error,
     shortlist: Array.isArray(run.shortlist) ? run.shortlist : [],
@@ -162,6 +165,12 @@ export function apply(ctx) {
   const home = resolveHomeDir(ctx)
   const files = paths(home)
   const log = makeLogger(files.log)
+  const channels = createChannelRegistry()
+  try {
+    ctx.provide('biliFavChannels', channels)
+  } catch (error) {
+    log(`注册渠道服务失败：${errorMessage(error)}`)
+  }
 
   let config = loadConfig(home)
   let state = loadState(home)
@@ -202,94 +211,23 @@ export function apply(ctx) {
     }
   }
 
-  const availableQQTools = () => {
-    try {
-      const tools = ctx.get('tools')
-      const schemas = tools?.schemas?.() || []
-      return schemas
-        .map((schema) => String(schema?.name || ''))
-        .filter((toolName) => /^qq_send__[A-Za-z0-9_-]+$/.test(toolName))
-    } catch {
-      return []
-    }
-  }
+  const channelList = () => channels.list()
 
-  const resolveQQTool = (preferred) => {
-    const tools = availableQQTools()
-    if (tools.length === 0) return ''
-    const wanted = String(preferred || config.qqTool || '').trim()
-    if (wanted && tools.includes(wanted)) return wanted
-    return tools[0]
-  }
-
-  async function callQQTool(args, { tool, signal } = {}) {
-    const name = resolveQQTool(tool)
-    if (!name) {
-      throw new Error('没有检测到 qq_send 工具；请先在 设置 → QQ Bot 里绑定一个 QQ 人设')
-    }
-    const tools = ctx.get('tools')
-    if (!tools || typeof tools.execute !== 'function') {
-      throw new Error('宿主没有提供 tools 服务')
-    }
-    const toolSignal = signal ?? AbortSignal.timeout(60_000)
-    const result = await tools.execute({
-      callId: randomId('qq'),
-      name,
-      arguments: args,
-      signal: toolSignal,
-    })
-    if (result?.isError) {
-      const text = (Array.isArray(result.content) ? result.content : [])
-        .filter((item) => item?.type === 'text')
-        .map((item) => item.text)
-        .join('\n')
-      throw new Error(text || `${name} 执行失败`)
-    }
-    const value = result?.value
-    if (value && typeof value === 'object' && value.ok === false) {
-      throw new Error(value.msg || `${name} 返回失败`)
-    }
-    const message =
-      value && typeof value === 'object'
-        ? String(value.msg || '')
-        : typeof value === 'string'
-          ? value
-          : ''
-    return { ok: true, message: message || '已发送', value, tool: name }
-  }
-
-  async function listQQTargets() {
-    return callQQTool({ action: 'list' }, { tool: config.qqTool })
-  }
-
-  async function sendQQTest({ target, scope, tool } = {}) {
-    const destination = String(target || config.qqTarget || '').trim()
-    if (!destination) throw new Error('请先填 QQ 推送目标')
-    return callQQTool(
-      {
-        action: 'send',
-        target: destination,
-        ...(scope && scope !== 'auto' ? { scope } : {}),
-        text: [
-          '🐟 大肥鱼推荐：QQ 推送联调成功',
-          new Date().toLocaleString('zh-CN'),
-          '这是一条测试消息，收到就说明「B站自主刷片 → QQ」链路通了。',
-        ].join('\n'),
-      },
-      { tool: tool || config.qqTool },
-    )
+  const selectedChannel = () => {
+    const id = String(config.channelId || '')
+    if (!id) return null
+    return channels.list().find((item) => item.id === id) || null
   }
 
   function deliveryLabel(mode) {
-    if (mode === 'qq') return '只 QQ 推送'
-    if (mode === 'both') return '收藏 + QQ'
+    if (mode === 'channel') return '只第三方渠道'
+    if (mode === 'both') return '收藏 + 渠道'
     return '只收藏'
   }
 
-  function formatQQMessage({ picks, folder, mode }) {
+  function formatDeliveryText({ picks, folder, mode }) {
     const favoriteLink =
-      folder?.link ||
-      (folder?.id && api.mid ? folderLink(api.mid, folder.id) : '')
+      folder?.link || (folder?.id && api.mid ? folderLink(api.mid, folder.id) : '')
     const lines = [
       `🐟 大肥鱼推荐 · ${new Date().toLocaleString('zh-CN', {
         month: '2-digit',
@@ -306,25 +244,35 @@ export function apply(ctx) {
       if (pick.reason) lines.push(`   理由：${oneLine(pick.reason, 180)}`)
       lines.push('')
     })
-    if (mode !== 'qq' && favoriteLink) lines.push(`收藏夹：${favoriteLink}`)
+    if (mode !== 'channel' && favoriteLink) lines.push(`收藏夹：${favoriteLink}`)
     return lines.join('\n').trim().slice(0, 3800)
   }
 
-  async function pushQQ({ cfg, run, picks, folder, signal }) {
-    const text = formatQQMessage({ picks, folder, mode: cfg.deliveryMode })
-    const result = await callQQTool(
+  async function deliverToChannel({ cfg, run, picks, folder, signal }) {
+    const channel = channels.get(cfg.channelId)
+    if (!channel) throw new Error(`未注册的投递渠道「${cfg.channelId || ''}」`)
+    const options = cfg.channelOptions?.[cfg.channelId] || {}
+    const favoriteLink =
+      folder?.link || (folder?.id && api.mid ? folderLink(api.mid, folder.id) : '')
+    const result = await channels.send(
+      cfg.channelId,
       {
-        action: 'send',
-        target: cfg.qqTarget,
-        ...(cfg.qqScope && cfg.qqScope !== 'auto' ? { scope: cfg.qqScope } : {}),
-        text,
+        text: formatDeliveryText({ picks, folder, mode: cfg.deliveryMode }),
+        title: '🐟 大肥鱼推荐',
+        picks,
+        folder: folder
+          ? { id: folder.id, title: folder.title, link: favoriteLink }
+          : null,
+        mode: cfg.deliveryMode,
       },
-      { tool: cfg.qqTool, signal },
+      options,
+      { signal },
     )
-    run.qqSent = picks.length
-    run.qqTarget = cfg.qqTarget
-    run.qqMessage = result.message
-    log(`QQ 推送成功：${picks.length} 条 → ${cfg.qqTarget}`)
+    run.channelId = cfg.channelId
+    run.channelLabel = result.channel || channel.label
+    run.channelSent = picks.length
+    run.channelMessage = result.message
+    log(`渠道推送成功：${picks.length} 条 → ${run.channelLabel}`)
     return result
   }
 
@@ -334,8 +282,9 @@ export function apply(ctx) {
     } catch (error) {
       log(`重新读取配置失败：${errorMessage(error)}`)
     }
-    const qqTools = availableQQTools()
     const mode = config.deliveryMode
+    const list = channelList()
+    const channel = selectedChannel()
     return {
       ok: true,
       version: VERSION,
@@ -348,13 +297,8 @@ export function apply(ctx) {
       },
       folder: folderState(),
       model: liveModel(),
-      qq: {
-        tools: qqTools,
-        tool: resolveQQTool(config.qqTool),
-        target: config.qqTarget,
-        scope: config.qqScope,
-        online: qqTools.length > 0,
-      },
+      channels: list,
+      channel,
       running: current
         ? {
             id: current.id,
@@ -367,7 +311,8 @@ export function apply(ctx) {
             dryRun: current.dryRun,
             trigger: current.trigger,
             delivery: current.delivery,
-            qqTarget: current.qqTarget,
+            channelId: current.channelId,
+            channelLabel: current.channelLabel,
             shortlist: current.shortlist || [],
             picks: (current.picks || []).map(publicPick),
           }
@@ -376,12 +321,14 @@ export function apply(ctx) {
       history: state.runs.slice(0, 8).map(summarizeRun),
       logTail: readTail(files.log, 1400),
       note: !api.loggedIn
-        ? mode === 'qq'
-          ? 'QQ 推送模式不需要 B站登录：可以用游客推荐流；个性化推荐和字幕仍需要登录。'
+        ? mode === 'channel'
+          ? '第三方渠道模式不需要 B站登录：可以用游客推荐流；个性化推荐和字幕仍需要登录。'
           : '未登录时可以「试刷」：用游客推荐流让模型挑一遍，不会写入收藏夹。'
-        : mode !== 'favorite' && qqTools.length === 0
-          ? '没有检测到 qq_send 工具；请先在 设置 → QQ Bot 里绑定一个 QQ 人设。'
-          : '',
+        : mode !== 'favorite' && list.length === 0
+          ? '还没有可用的第三方投递渠道；安装 dsh-bili-fav-qq 或其它渠道插件后再刷新。'
+          : mode !== 'favorite' && channel && !channel.available
+            ? `渠道「${channel.label}」当前不可用；检查它依赖的工具/服务是否在线。`
+            : '',
     }
   }
 
@@ -589,23 +536,24 @@ export function apply(ctx) {
         }
       })
 
-      const mode = ['favorite', 'qq', 'both'].includes(cfg.deliveryMode)
+      const mode = ['favorite', 'channel', 'both'].includes(cfg.deliveryMode)
         ? cfg.deliveryMode
         : 'favorite'
-      const doFavorite = mode !== 'qq'
-      const doQQ = mode !== 'favorite'
+      const doFavorite = mode !== 'channel'
+      const doChannel = mode !== 'favorite'
       run.delivery = mode
-      run.qqTarget = doQQ ? cfg.qqTarget : ''
+      run.channelId = doChannel ? cfg.channelId : ''
+      run.channelLabel = doChannel ? channels.get(cfg.channelId)?.label || cfg.channelId : ''
 
       if (!run.picks.length) {
         return finishRun(run, 'ok', {
-          note: `它这一轮没有找到真正想${doFavorite && doQQ ? '收藏/推送' : doFavorite ? '收藏' : '推送'}的视频。`,
+          note: `它这一轮没有找到真正想${doFavorite && doChannel ? '收藏/推送' : doFavorite ? '收藏' : '推送'}的视频。`,
         })
       }
 
       if (run.dryRun) {
         return finishRun(run, 'ok', {
-          note: `试刷（${deliveryLabel(mode)}）：模型想挑 ${run.picks.length} 条，这次没有写入收藏夹，也没有发送 QQ。`,
+          note: `试刷（${deliveryLabel(mode)}）：模型想挑 ${run.picks.length} 条，这次没有写入收藏夹，也没有发送渠道。`,
         })
       }
 
@@ -661,18 +609,19 @@ export function apply(ctx) {
         }
       }
 
-      let qqOk = false
-      let qqError = ''
-      if (doQQ) {
-        run.phase = `推送到 QQ（${cfg.qqTarget}）`
+      let channelOk = false
+      let channelError = ''
+      if (doChannel) {
+        const channel = channels.get(cfg.channelId)
+        run.phase = `推送到 ${channel?.label || cfg.channelId}`
         try {
-          await pushQQ({ cfg, run, picks: run.picks, folder, signal })
-          qqOk = true
+          await deliverToChannel({ cfg, run, picks: run.picks, folder, signal })
+          channelOk = true
         } catch (error) {
           if (isAbortError(error) || signal.aborted) throw error
-          qqError = errorMessage(error)
-          run.qqError = qqError
-          log(`QQ 推送失败：${qqError}`)
+          channelError = errorMessage(error)
+          run.channelError = channelError
+          log(`渠道推送失败：${channelError}`)
         }
       }
 
@@ -690,15 +639,15 @@ export function apply(ctx) {
         })
       }
 
-      if (mode === 'qq') {
-        if (!qqOk) {
+      if (mode === 'channel') {
+        if (!channelOk) {
           for (const pick of run.picks) {
             pick.status = 'failed'
-            pick.error = qqError
+            pick.error = channelError
           }
           return finishRun(run, 'error', {
-            error: `QQ 推送失败：${qqError}`,
-            note: `模型挑了 ${run.picks.length} 条，但没有发到 QQ。`,
+            error: `渠道推送失败：${channelError}`,
+            note: `模型挑了 ${run.picks.length} 条，但没有发到渠道。`,
           })
         }
         for (const pick of run.picks) {
@@ -707,36 +656,36 @@ export function apply(ctx) {
           markSeen(state, pick.bvid)
         }
         return finishRun(run, 'ok', {
-          note: `已推送 ${run.picks.length} 条到 QQ（${cfg.qqTarget}）`,
+          note: `已推送 ${run.picks.length} 条到 ${run.channelLabel}`,
         })
       }
 
       // both
-      if (qqOk) {
+      if (channelOk) {
         for (const pick of run.picks) markSeen(state, pick.bvid)
       }
-      if (favoriteOk && qqOk) {
+      if (favoriteOk && channelOk) {
         return finishRun(run, failed > 0 ? 'partial' : 'ok', {
-          note: `已收藏 ${saved} 条到「${folder.title}」，并推送 ${run.picks.length} 条到 QQ（${cfg.qqTarget}）${
+          note: `已收藏 ${saved} 条到「${folder.title}」，并推送 ${run.picks.length} 条到 ${run.channelLabel}${
             failed > 0 ? `；${failed} 条收藏失败` : ''
           }`,
           error: failed > 0 ? favoriteError : '',
         })
       }
-      if (favoriteOk && !qqOk) {
+      if (favoriteOk && !channelOk) {
         return finishRun(run, 'partial', {
-          note: `已收藏 ${saved} 条到「${folder.title}」；QQ 推送失败。`,
-          error: qqError,
+          note: `已收藏 ${saved} 条到「${folder.title}」；渠道推送失败。`,
+          error: channelError,
         })
       }
-      if (!favoriteOk && qqOk) {
+      if (!favoriteOk && channelOk) {
         return finishRun(run, 'partial', {
-          note: `QQ 已推送 ${run.picks.length} 条；收藏失败。`,
+          note: `渠道已推送 ${run.picks.length} 条；收藏失败。`,
           error: favoriteError || '收藏失败',
         })
       }
       return finishRun(run, 'error', {
-        error: `收藏和 QQ 推送都失败：收藏=${favoriteError || '未知'}；QQ=${qqError || '未知'}`,
+        error: `收藏和渠道推送都失败：收藏=${favoriteError || '未知'}；渠道=${channelError || '未知'}`,
         note: `模型挑了 ${run.picks.length} 条，但两路都没成功。`,
       })
     } catch (error) {
@@ -757,12 +706,15 @@ export function apply(ctx) {
     } catch (error) {
       log(`开始前读取配置失败：${errorMessage(error)}`)
     }
+    const mode = ['favorite', 'channel', 'both'].includes(config.deliveryMode)
+      ? config.deliveryMode
+      : 'favorite'
+    const doFavorite = mode !== 'channel'
+    const doChannel = mode !== 'favorite'
+    const channelDescriptor = doChannel
+      ? channelList().find((item) => item.id === config.channelId) || null
+      : null
     if (!dryRun) {
-      const mode = ['favorite', 'qq', 'both'].includes(config.deliveryMode)
-        ? config.deliveryMode
-        : 'favorite'
-      const doFavorite = mode !== 'qq'
-      const doQQ = mode !== 'favorite'
       if (doFavorite && !api.loggedIn) {
         return {
           ok: false,
@@ -771,28 +723,45 @@ export function apply(ctx) {
           message: '请先在设置页扫码登录 B站，再开始收藏。',
         }
       }
-      if (doQQ && !String(config.qqTarget || '').trim()) {
-        return {
-          ok: false,
-          started: false,
-          reason: 'no-qq-target',
-          message: '请先在偏好里填 QQ 推送目标（群名、群 openid 或好友昵称）。',
+      if (doChannel) {
+        if (!String(config.channelId || '').trim()) {
+          return {
+            ok: false,
+            started: false,
+            reason: 'no-channel',
+            message: '请先在偏好里选择一个第三方投递渠道。',
+          }
         }
-      }
-      if (doQQ && availableQQTools().length === 0) {
-        return {
-          ok: false,
-          started: false,
-          reason: 'no-qq-tool',
-          message: '没有检测到 qq_send 工具；请先在 设置 → QQ Bot 里绑定一个 QQ 人设。',
+        if (!channels.get(config.channelId) || !channelDescriptor) {
+          return {
+            ok: false,
+            started: false,
+            reason: 'unknown-channel',
+            message: `渠道「${config.channelId}」没有注册；请安装/启用对应的渠道插件后刷新。`,
+          }
+        }
+        if (channelDescriptor.available === false) {
+          return {
+            ok: false,
+            started: false,
+            reason: 'channel-unavailable',
+            message: `渠道「${channelDescriptor.label}」当前不可用；检查它依赖的工具/服务是否在线。`,
+          }
+        }
+        const options = config.channelOptions?.[config.channelId] || {}
+        const missing = (channelDescriptor.fields || [])
+          .filter((field) => field.required && !String(options[field.key] ?? '').trim())
+          .map((field) => field.label || field.key)
+        if (missing.length > 0) {
+          return {
+            ok: false,
+            started: false,
+            reason: 'channel-options',
+            message: `渠道「${channelDescriptor.label}」还缺：${missing.join('、')}。`,
+          }
         }
       }
     }
-    const mode = ['favorite', 'qq', 'both'].includes(config.deliveryMode)
-      ? config.deliveryMode
-      : 'favorite'
-    const doFavorite = mode !== 'qq'
-    const doQQ = mode !== 'favorite'
     const cfg = {
       ...config,
       deliveryMode: mode,
@@ -815,10 +784,11 @@ export function apply(ctx) {
       model: '',
       folder: '',
       delivery: mode,
-      qqSent: 0,
-      qqTarget: doQQ ? cfg.qqTarget : '',
-      qqMessage: '',
-      qqError: '',
+      channelId: doChannel ? cfg.channelId : '',
+      channelLabel: doChannel ? channelDescriptor?.label || cfg.channelId : '',
+      channelSent: 0,
+      channelMessage: '',
+      channelError: '',
       note: '',
       error: '',
       shortlist: [],
@@ -844,7 +814,7 @@ export function apply(ctx) {
     log(
       `开刷（${trigger}${dryRun ? '，试刷' : ''}，${deliveryLabel(mode)}）：扫 ${cfg.scan} 条，最多挑 ${cfg.count} 条${
         doFavorite ? `，收藏到「${cfg.folderName}」` : ''
-      }${doQQ ? `，推送 QQ（${cfg.qqTarget}）` : ''}`,
+      }${doChannel ? `，推送到 ${channelDescriptor?.label || cfg.channelId}` : ''}`,
     )
     return { ok: true, started: true, runId: run.id, dryRun: Boolean(dryRun), promise }
   }
@@ -1017,20 +987,27 @@ export function apply(ctx) {
         return
       }
 
-      if (req.method === 'GET' && path === `${API_PREFIX}/qq-targets`) {
-        const result = await listQQTargets()
-        sendJson(res, 200, { ok: true, message: result.message, tool: result.tool })
+      if (req.method === 'POST' && path === `${API_PREFIX}/channel/targets`) {
+        const body = await readBody(req)
+        const channelId = String(body?.channelId || config.channelId || '').trim()
+        if (!channelId) throw new Error('缺少 channelId')
+        const options = sanitizeChannelOptions({ [channelId]: body?.options || {} })[channelId] || {}
+        const result = await channels.listTargets(channelId, options, {
+          signal: AbortSignal.timeout(60_000),
+        })
+        sendJson(res, 200, { ok: true, message: result.message, channel: result.channel })
         return
       }
 
-      if (req.method === 'POST' && path === `${API_PREFIX}/qq-test`) {
+      if (req.method === 'POST' && path === `${API_PREFIX}/channel/test`) {
         const body = await readBody(req)
-        const result = await sendQQTest({
-          target: body?.target,
-          scope: body?.scope,
-          tool: body?.tool,
+        const channelId = String(body?.channelId || config.channelId || '').trim()
+        if (!channelId) throw new Error('缺少 channelId')
+        const options = sanitizeChannelOptions({ [channelId]: body?.options || {} })[channelId] || {}
+        const result = await channels.test(channelId, options, {
+          signal: AbortSignal.timeout(60_000),
         })
-        sendJson(res, 200, { ok: true, message: result.message, tool: result.tool })
+        sendJson(res, 200, { ok: true, message: result.message, channel: result.channel })
         return
       }
 
@@ -1087,7 +1064,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_status',
     description:
-      '查看「B站自主刷片」的状态：是否已登录 B站、模型是谁、投递方式、目标收藏夹、QQ 推送工具/目标、最近一轮它点开了什么、收藏/推送了什么。',
+      '查看「B站自主刷片」的状态：是否已登录 B站、模型是谁、投递方式、目标收藏夹、已注册的第三方渠道、最近一轮它点开了什么、收藏/推送了什么。',
     parameters: { type: 'object', properties: {} },
     async execute() {
       const status = publicStatus()
@@ -1097,7 +1074,8 @@ export function apply(ctx) {
         login: status.login,
         model: status.model,
         folder: status.folder,
-        qq: status.qq,
+        channels: status.channels,
+        channel: status.channel,
         running: status.running,
         lastRun: status.lastRun,
         config: status.config,
@@ -1109,7 +1087,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_preview',
     description:
-      '让模型自己刷一轮 B站推荐流：凭它自己的品味点开一些视频、读字幕，再决定想推荐哪些；只预览，不写入收藏夹、也不发送 QQ。返回它点开了什么、最后想收藏/推送什么以及理由。',
+      '让模型自己刷一轮 B站推荐流：凭它自己的品味点开一些视频、读字幕，再决定想推荐哪些；只预览，不写入收藏夹、也不发送渠道。返回它点开了什么、最后想收藏/推送什么以及理由。',
     timeoutMs: 240_000,
     parameters: {
       type: 'object',
@@ -1132,7 +1110,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_run',
     description:
-      '让模型自己刷一轮 B站推荐流，按它自己的判断挑片，并按设置页里的投递方式处理：只收藏、只通过 QQ Bot 推送、或两者都要。收藏需要 B站登录；QQ 推送需要已安装并绑定 QQ Bot 的 qq_send 工具和目标。',
+      '让模型自己刷一轮 B站推荐流，按它自己的判断挑片，并按设置页里的投递方式处理：只收藏、只通过第三方渠道推送、或两者都要。收藏需要 B站登录；渠道推送需要安装并启用对应的渠道插件。',
     parameters: {
       type: 'object',
       properties: {
@@ -1170,39 +1148,43 @@ export function apply(ctx) {
   })
 
   registerTool({
-    name: 'bili_fav_qq',
+    name: 'bili_fav_channels',
     description:
-      'QQ 推送辅助：action=targets 只读列出当前 QQ 机器人认识的群/私聊目标（用来填推送目标）；action=test 向配置的 QQ 目标发送一条测试消息，验证「B站推荐 → QQ」链路。',
+      '查看已注册的第三方投递渠道；action=list 只读列出渠道和配置字段；action=targets 让当前渠道读取可用目标；action=test 让当前渠道发送一条测试消息。',
     parameters: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['targets', 'test'],
-          description: 'targets=只读列目标；test=发一条测试消息',
+          enum: ['list', 'targets', 'test'],
+          description: 'list=只读列渠道；targets=读取目标；test=发测试消息',
         },
-        target: {
+        channelId: {
           type: 'string',
-          description: 'test 用：覆盖配置里的 QQ 目标（群名 / openid / 好友昵称）',
+          description: '渠道 id；省略时用设置里选中的渠道',
         },
-        scope: {
-          type: 'string',
-          enum: ['auto', 'group', 'c2c'],
-          description: '目标类型，默认 auto',
+        options: {
+          type: 'object',
+          description: '临时覆盖渠道 options（如 target/scope）',
+          additionalProperties: true,
         },
       },
     },
     timeoutMs: 60_000,
     async execute(args) {
-      if (args?.action === 'targets') {
-        const result = await listQQTargets()
-        return { ok: true, message: result.message, tool: result.tool }
-      }
-      const result = await sendQQTest({
-        target: args?.target,
-        scope: args?.scope,
-      })
-      return { ok: true, message: result.message, tool: result.tool }
+      const action = args?.action || 'list'
+      if (action === 'list') return { ok: true, channels: channelList() }
+      const channelId = String(args?.channelId || config.channelId || '').trim()
+      if (!channelId) return { ok: false, error: '没有选中的渠道，请指定 channelId' }
+      const options =
+        sanitizeChannelOptions({
+          [channelId]: args?.options || config.channelOptions?.[channelId] || {},
+        })[channelId] || {}
+      const result =
+        action === 'test'
+          ? await channels.test(channelId, options, { signal: AbortSignal.timeout(60_000) })
+          : await channels.listTargets(channelId, options, { signal: AbortSignal.timeout(60_000) })
+      return { ok: true, message: result.message, channel: result.channel }
     },
   })
 
@@ -1212,11 +1194,14 @@ export function apply(ctx) {
       try {
         config = loadConfig(home)
         if (!config.autoRun.enabled) return
-        const mode = ['favorite', 'qq', 'both'].includes(config.deliveryMode)
+        const mode = ['favorite', 'channel', 'both'].includes(config.deliveryMode)
           ? config.deliveryMode
           : 'favorite'
-        if (mode !== 'qq' && !api.loggedIn) return
-        if (mode !== 'favorite' && !String(config.qqTarget || '').trim()) return
+        if (mode !== 'channel' && !api.loggedIn) return
+        if (mode !== 'favorite') {
+          const descriptor = channelList().find((item) => item.id === config.channelId)
+          if (!descriptor || descriptor.available === false) return
+        }
         const [targetHour, targetMinute] = config.autoRun.time.split(':').map(Number)
         if (!Number.isFinite(targetHour) || !Number.isFinite(targetMinute)) return
         const now = new Date()

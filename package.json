@@ -1,6 +1,6 @@
 {
   "name": "dsh-bili-fav",
-  "version": "0.2.0-beta.1",
+  "version": "0.2.0-beta.2",
   "description": "用你的 B站账号刷推荐流，让模型自己点开视频、读字幕、按自己的品味挑片，并收藏到你自定义的收藏夹。",
   "type": "module",
   "main": "index.js",
@@ -66,6 +66,7 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "check": "node scripts/check-manifest.mjs && npm test",
-    "pack:check": "npm pack --dry-run"
+    "pack:check": "npm pack --dry-run",
+    "test:adapter": "node --test packages/dsh-bili-fav-qq/test/*.test.mjs"
   }
 }

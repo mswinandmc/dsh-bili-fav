@@ -236,8 +236,8 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
     }
 
     function deliveryLabel(mode) {
-      if (mode === 'qq') return '只 QQ 推送'
-      if (mode === 'both') return '收藏 + QQ'
+      if (mode === 'channel') return '只第三方渠道'
+      if (mode === 'both') return '收藏 + 渠道'
       return '只收藏'
     }
 
@@ -248,13 +248,15 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         scan: Number(config.scan) || 20,
         deepRead: Number(config.deepRead) || 8,
         count: Number(config.count) || 5,
-        deliveryMode: ['favorite', 'qq', 'both'].includes(config.deliveryMode)
+        deliveryMode: ['favorite', 'channel', 'both'].includes(config.deliveryMode)
           ? config.deliveryMode
           : 'favorite',
+        channelId: String(config.channelId || ''),
+        channelOptions:
+          config.channelOptions && typeof config.channelOptions === 'object'
+            ? config.channelOptions
+            : {},
         folderName: String(config.folderName || '大肥鱼推荐'),
-        qqTarget: String(config.qqTarget || ''),
-        qqScope: ['auto', 'group', 'c2c'].includes(config.qqScope) ? config.qqScope : 'auto',
-        qqTool: String(config.qqTool || 'qq_send__standard'),
         readSubtitles: config.readSubtitles !== false,
         autoEnabled: Boolean(config.autoRun && config.autoRun.enabled),
         autoTime: String((config.autoRun && config.autoRun.time) || '12:30'),
@@ -268,10 +270,9 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         deepRead: form.deepRead,
         count: form.count,
         deliveryMode: form.deliveryMode,
+        channelId: form.channelId,
+        channelOptions: form.channelOptions,
         folderName: form.folderName,
-        qqTarget: form.qqTarget,
-        qqScope: form.qqScope,
-        qqTool: form.qqTool,
         readSubtitles: form.readSubtitles,
         autoRun: { enabled: form.autoEnabled, time: form.autoTime },
       }
@@ -336,7 +337,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
             : pick.status === 'saved'
               ? h('p', { 'data-bf-reason': '', 'data-bf-tone': 'ok' }, '已收藏')
               : pick.status === 'pushed'
-                ? h('p', { 'data-bf-reason': '', 'data-bf-tone': 'ok' }, '已推送 QQ')
+                ? h('p', { 'data-bf-reason': '', 'data-bf-tone': 'ok' }, '已推送渠道')
                 : null,
         ),
       )
@@ -426,12 +427,12 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         run.delivery !== 'favorite' && !run.dryRun
           ? h(
               'div',
-              { 'data-bf-meta': '', 'data-bf-tone': run.qqError ? 'error' : '' },
-              run.qqError
-                ? `QQ 推送失败：${run.qqError}`
-                : run.qqSent
-                  ? `QQ 已推送 ${run.qqSent} 条${run.qqTarget ? ` → ${run.qqTarget}` : ''}`
-                  : 'QQ 未推送',
+              { 'data-bf-meta': '', 'data-bf-tone': run.channelError ? 'error' : '' },
+              run.channelError
+                ? `渠道推送失败：${run.channelError}`
+                : run.channelSent
+                  ? `渠道已推送 ${run.channelSent} 条${run.channelLabel ? ` → ${run.channelLabel}` : ''}`
+                  : '渠道未推送',
             )
           : null,
         run.note ? h('div', { 'data-bf-msg': '', 'data-bf-tone': run.status === 'error' ? 'error' : '' }, run.note) : null,
@@ -456,7 +457,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         整理收藏结果: '正在整理结果',
         准备收藏夹: '正在准备收藏夹',
         收藏到: '正在收藏',
-        '推送到 QQ': '正在推送到 QQ',
+        '推送到': '正在推送到渠道',
       }
       let phase = running.phase || '准备中'
       for (const key of Object.keys(labels)) {
@@ -636,27 +637,33 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
       save,
       loadFolders,
       notice,
-      qqMessage,
-      loadQQTargets,
-      testQQ,
+      channelMessage,
+      listChannelTargets,
+      testChannel,
     }) {
       if (!form) return null
       const update = (patch) => setForm((current) => ({ ...current, ...patch }))
       const folderNames = Array.isArray(folders) ? folders.map((item) => item.title) : []
-      const qqTools = Array.isArray(status?.qq?.tools) ? status.qq.tools : []
-      const qqToolOptions = qqTools.length
-        ? qqTools.includes(form.qqTool)
-          ? qqTools
-          : [form.qqTool, ...qqTools].filter(Boolean)
-        : form.qqTool
-          ? [form.qqTool]
-          : []
-      const modeNeedsFavorite = form.deliveryMode !== 'qq'
-      const modeNeedsQQ = form.deliveryMode !== 'favorite'
+      const channels = Array.isArray(status?.channels) ? status.channels : []
+      const selectedChannel = channels.find((item) => item.id === form.channelId) || null
+      const channelOptions = (form.channelOptions && form.channelOptions[form.channelId]) || {}
+      const setChannelOption = (key, value) => {
+        const channelId = form.channelId
+        if (!channelId) return
+        const currentOptions = form.channelOptions || {}
+        update({
+          channelOptions: {
+            ...currentOptions,
+            [channelId]: { ...(currentOptions[channelId] || {}), [key]: value },
+          },
+        })
+      }
+      const modeNeedsFavorite = form.deliveryMode !== 'channel'
+      const modeNeedsChannel = form.deliveryMode !== 'favorite'
       const MODES = [
-        ['favorite', '只收藏', '挑中的视频写进 B站收藏夹；不发送 QQ。'],
-        ['qq', '只 QQ 推送', '把推荐清单发到 QQ；不写收藏夹。B站未登录也能用游客推荐流。'],
-        ['both', '两者都要', '收藏夹和 QQ 都走；任意一路失败会标在记录里。'],
+        ['favorite', '只收藏', '挑中的视频写进 B站收藏夹；不使用第三方渠道。'],
+        ['channel', '只第三方渠道', '把推荐清单交给选中的渠道；不写收藏夹。B站未登录也能用游客推荐流。'],
+        ['both', '两者都要', '收藏夹和第三方渠道都走；任意一路失败会标在记录里。'],
       ]
       const modeDescription = (MODES.find(([value]) => value === form.deliveryMode) || MODES[0])[2]
       return h(
@@ -737,7 +744,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
           h(
             'div',
             { 'data-bf-note': '' },
-            '挑完视频后怎么处理：只写 B站收藏夹、只发 QQ，或者两边都做。收藏需要登录 B站；QQ 推送需要已绑定 QQ Bot 人设。',
+            '挑完视频后怎么处理：只写 B站收藏夹、只交给第三方渠道，或者两边都做。渠道由独立插件注册。',
           ),
           h(
             'div',
@@ -757,25 +764,13 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
             ),
           ),
           h('div', { 'data-bf-note': '' }, modeDescription),
-          modeNeedsQQ
-            ? h(
-                'div',
-                {
-                  'data-bf-note': '',
-                  ...(qqTools.length ? {} : { 'data-bf-warn': '' }),
-                },
-                qqTools.length
-                  ? `QQ 推送工具：${form.qqTool}（已检测到 ${qqTools.length} 个）。`
-                  : '还没有检测到 qq_send 工具：请先到 设置 → QQ Bot 绑定一个人设。',
-              )
-            : null,
         ),
         h(
           'div',
           { 'data-bf-section': '' },
           h('div', { 'data-bf-label': '' }, '收藏到哪个收藏夹'),
           !modeNeedsFavorite
-            ? h('div', { 'data-bf-note': '', 'data-bf-warn': '' }, '当前是「只 QQ 推送」，下面的收藏夹设置不会使用。')
+            ? h('div', { 'data-bf-note': '', 'data-bf-warn': '' }, '当前是「只第三方渠道」，下面的收藏夹设置不会使用。')
             : null,
           h('input', {
             'data-bf-input': '',
@@ -825,102 +820,159 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
               )
             : h('div', { 'data-bf-note': '' }, '登录后才能读取已有收藏夹；现在也可以直接填名字。'),
         ),
-        modeNeedsQQ
+        modeNeedsChannel
           ? h(
               'div',
               { 'data-bf-section': '' },
-              h('div', { 'data-bf-label': '' }, 'QQ 推送'),
-              h(
-                'div',
-                { 'data-bf-note': '' },
-                '挑完后把「标题 + BV 链接 + 理由」发到这个目标。QQ 官方 Bot 的 openid 很长（通常 32 位以上），可直接粘贴；「读取 QQ 目标」里的短 ID 只是展示用，不要照抄。用 openid 时把下方「目标类型」选成群聊或私聊。「测试发送」会真的发一条 QQ 消息。',
-              ),
-              h(
-                'div',
-                { 'data-bf-field': '' },
-                h('label', { 'data-bf-note': '' }, '推送到'),
-                h('input', {
-                  'data-bf-input': '',
-                  value: form.qqTarget || '',
-                  maxLength: 200,
-                  placeholder: '群名 / 好友昵称 / 32+ 位 openid',
-                  onChange: (event) => update({ qqTarget: event.target.value }),
-                }),
-              ),
-              h(
-                'div',
-                { 'data-bf-row': '' },
-                h(
-                  'div',
-                  { 'data-bf-field': '' },
-                  h('label', { 'data-bf-note': '' }, '目标类型'),
-                  h(
-                    'select',
-                    {
-                      'data-bf-input': '',
-                      value: form.qqScope || 'auto',
-                      onChange: (event) => update({ qqScope: event.target.value }),
-                    },
-                    h('option', { value: 'auto' }, '自动识别'),
-                    h('option', { value: 'group' }, '群聊'),
-                    h('option', { value: 'c2c' }, '私聊'),
-                  ),
-                ),
-                h(
-                  'div',
-                  { 'data-bf-field': '' },
-                  h('label', { 'data-bf-note': '' }, 'QQ 发送工具'),
-                  qqToolOptions.length
-                    ? h(
-                        'select',
-                        {
-                          'data-bf-input': '',
-                          value: form.qqTool || '',
-                          onChange: (event) => update({ qqTool: event.target.value }),
-                        },
-                        qqToolOptions.map((name) => h('option', { key: name, value: name }, name)),
-                      )
-                    : h('input', {
-                        'data-bf-input': '',
-                        value: form.qqTool || '',
-                        onChange: (event) => update({ qqTool: event.target.value }),
-                      }),
-                ),
-              ),
-              h(
-                'div',
-                { 'data-bf-row': '' },
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    'data-bf-btn': '',
-                    disabled: Boolean(busy),
-                    onClick: loadQQTargets,
-                  },
-                  busy === 'qq-list' ? '读取中…' : '读取 QQ 目标',
-                ),
-                h(
-                  'button',
-                  {
-                    type: 'button',
-                    'data-bf-btn': '',
-                    disabled: Boolean(busy) || !String(form.qqTarget || '').trim(),
-                    onClick: testQQ,
-                  },
-                  busy === 'qq-test' ? '发送中…' : '测试发送',
-                ),
-              ),
-              qqMessage
-                ? h('pre', { 'data-bf-pre': '', 'data-bf-tone': qqMessage.tone || '' }, qqMessage.text)
-                : null,
-              qqTools.length === 0
+              h('div', { 'data-bf-label': '' }, '第三方渠道'),
+              channels.length === 0
                 ? h(
                     'div',
                     { 'data-bf-note': '', 'data-bf-warn': '' },
-                    '未检测到 qq_send 工具。请先在 设置 → QQ Bot 里绑定一个 QQ 人设，再刷新本页。',
+                    '还没有注册任何渠道。安装 dsh-bili-fav-qq（QQ）或其它渠道插件，然后刷新本页。',
                   )
-                : null,
+                : h(
+                    React.Fragment,
+                    null,
+                    h(
+                      'div',
+                      { 'data-bf-field': '' },
+                      h('label', { 'data-bf-note': '' }, '选择渠道'),
+                      h(
+                        'select',
+                        {
+                          'data-bf-input': '',
+                          value: form.channelId,
+                          onChange: (event) => update({ channelId: event.target.value }),
+                        },
+                        h('option', { value: '' }, '未选择'),
+                        channels.map((item) =>
+                          h(
+                            'option',
+                            { key: item.id, value: item.id },
+                            `${item.label}${item.available ? '' : '（不可用）'}`,
+                          ),
+                        ),
+                      ),
+                    ),
+                    form.channelId && !selectedChannel
+                      ? h(
+                          'div',
+                          { 'data-bf-note': '', 'data-bf-warn': '' },
+                          `渠道「${form.channelId}」没有注册；安装/启用对应插件后刷新。`,
+                        )
+                      : null,
+                    selectedChannel
+                      ? h(
+                          React.Fragment,
+                          null,
+                          selectedChannel.description
+                            ? h('div', { 'data-bf-note': '' }, selectedChannel.description)
+                            : null,
+                          selectedChannel.available === false
+                            ? h(
+                                'div',
+                                { 'data-bf-note': '', 'data-bf-warn': '' },
+                                '这个渠道当前不可用；检查它依赖的工具/服务是否在线。',
+                              )
+                            : null,
+                          (selectedChannel.fields || []).map((field) => {
+                            const value = channelOptions[field.key] ?? field.default ?? ''
+                            const label = `${field.label || field.key}${field.required ? ' *' : ''}`
+                            if (field.type === 'select') {
+                              return h(
+                                'div',
+                                { key: field.key, 'data-bf-field': '' },
+                                h('label', { 'data-bf-note': '' }, label),
+                                h(
+                                  'select',
+                                  {
+                                    'data-bf-input': '',
+                                    value,
+                                    onChange: (event) => setChannelOption(field.key, event.target.value),
+                                  },
+                                  (field.options || []).map((option) =>
+                                    h('option', { key: option.value, value: option.value }, option.label),
+                                  ),
+                                ),
+                                field.help ? h('div', { 'data-bf-note': '' }, field.help) : null,
+                              )
+                            }
+                            if (field.type === 'checkbox') {
+                              return h(
+                                'div',
+                                { key: field.key, 'data-bf-field': '', 'data-bf-inline': '' },
+                                h(
+                                  'div',
+                                  { 'data-bf-col': '' },
+                                  h('div', { 'data-bf-label': '' }, label),
+                                  field.help ? h('div', { 'data-bf-note': '' }, field.help) : null,
+                                ),
+                                h(Switch, {
+                                  checked: Boolean(value),
+                                  label: field.label || field.key,
+                                  onChange: (next) => setChannelOption(field.key, next),
+                                }),
+                              )
+                            }
+                            const multiline = field.type === 'textarea'
+                            return h(
+                              'div',
+                              { key: field.key, 'data-bf-field': '' },
+                              h('label', { 'data-bf-note': '' }, label),
+                              h(multiline ? 'textarea' : 'input', {
+                                'data-bf-input': '',
+                                ...(multiline ? {} : { type: 'text' }),
+                                value: String(value ?? ''),
+                                placeholder: field.placeholder || '',
+                                onChange: (event) => setChannelOption(field.key, event.target.value),
+                              }),
+                              field.help ? h('div', { 'data-bf-note': '' }, field.help) : null,
+                            )
+                          }),
+                          h(
+                            'div',
+                            { 'data-bf-row': '' },
+                            selectedChannel.hasList
+                              ? h(
+                                  'button',
+                                  {
+                                    type: 'button',
+                                    'data-bf-btn': '',
+                                    disabled: Boolean(busy),
+                                    onClick: listChannelTargets,
+                                  },
+                                  busy === 'channel-list' ? '读取中…' : '读取目标',
+                                )
+                              : null,
+                            selectedChannel.hasTest
+                              ? h(
+                                  'button',
+                                  {
+                                    type: 'button',
+                                    'data-bf-btn': '',
+                                    disabled: Boolean(busy) || selectedChannel.available === false,
+                                    onClick: testChannel,
+                                  },
+                                  busy === 'channel-test' ? '发送中…' : '测试发送',
+                                )
+                              : null,
+                          ),
+                          channelMessage
+                            ? h(
+                                'pre',
+                                { 'data-bf-pre': '', 'data-bf-tone': channelMessage.tone || '' },
+                                channelMessage.text,
+                              )
+                            : null,
+                        )
+                      : null,
+                  ),
+              h(
+                'div',
+                { 'data-bf-note': '' },
+                '渠道由独立插件通过 biliFavChannels 注册；QQ 适配器是 dsh-bili-fav-qq。',
+              ),
             )
           : null,
         h(
@@ -1044,7 +1096,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
       const [expandedRun, setExpandedRun] = useState(null)
       const [copyBusy, setCopyBusy] = useState('')
       const [confirmLogout, setConfirmLogout] = useState(false)
-      const [qqMessage, setQqMessage] = useState(null)
+      const [channelMessage, setChannelMessage] = useState(null)
       const aliveRef = useRef(true)
       const formTouched = useRef(false)
 
@@ -1184,36 +1236,41 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         }
       }
 
-      async function loadQQTargets() {
-        setBusy('qq-list')
-        setQqMessage(null)
+      async function listChannelTargets() {
+        if (!form?.channelId) {
+          setChannelMessage({ tone: 'warn', text: '先在偏好里选一个渠道，再读取目标。' })
+          return
+        }
+        setBusy('channel-list')
+        setChannelMessage(null)
         try {
-          const result = await jget('/qq-targets')
-          setQqMessage({ tone: 'ok', text: result.message || '（没有返回目标列表）' })
-        } catch (qqError) {
-          setQqMessage({ tone: 'error', text: qqError.message || '读取 QQ 目标失败' })
+          const result = await jpost('/channel/targets', {
+            channelId: form.channelId,
+            options: form.channelOptions?.[form.channelId] || {},
+          })
+          setChannelMessage({ tone: 'ok', text: result.message || '（没有返回目标列表）' })
+        } catch (channelError) {
+          setChannelMessage({ tone: 'error', text: channelError.message || '读取渠道目标失败' })
         } finally {
           setBusy('')
         }
       }
 
-      async function testQQ() {
-        const target = String(form?.qqTarget || '').trim()
-        if (!target) {
-          setQqMessage({ tone: 'warn', text: '先在「推送到」里填 QQ 目标，再测试。' })
+      async function testChannel() {
+        if (!form?.channelId) {
+          setChannelMessage({ tone: 'warn', text: '先在偏好里选一个渠道，再测试发送。' })
           return
         }
-        setBusy('qq-test')
-        setQqMessage(null)
+        setBusy('channel-test')
+        setChannelMessage(null)
         try {
-          const result = await jpost('/qq-test', {
-            target,
-            scope: form?.qqScope,
-            tool: form?.qqTool,
+          const result = await jpost('/channel/test', {
+            channelId: form.channelId,
+            options: form.channelOptions?.[form.channelId] || {},
           })
-          setQqMessage({ tone: 'ok', text: result.message || '测试消息已发送' })
-        } catch (qqError) {
-          setQqMessage({ tone: 'error', text: qqError.message || '测试发送失败' })
+          setChannelMessage({ tone: 'ok', text: result.message || '测试消息已发送' })
+        } catch (channelError) {
+          setChannelMessage({ tone: 'error', text: channelError.message || '测试发送失败' })
         } finally {
           setBusy('')
         }
@@ -1298,9 +1355,22 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
       const loggedIn = status?.login?.state === 'logged-in'
       const qrVisible = Boolean(qr)
       const deliveryMode = form?.deliveryMode || status?.config?.deliveryMode || 'favorite'
-      const needsLogin = deliveryMode !== 'qq'
-      const needsQQ = deliveryMode !== 'favorite'
-      const qqReady = !needsQQ || Boolean(String(form?.qqTarget || '').trim())
+      const needsLogin = deliveryMode !== 'channel'
+      const needsChannel = deliveryMode !== 'favorite'
+      const channels = Array.isArray(status?.channels) ? status.channels : []
+      const selectedChannel = channels.find((item) => item.id === form?.channelId) || null
+      const channelOptions = form?.channelOptions?.[form?.channelId] || {}
+      const channelReady =
+        !needsChannel ||
+        Boolean(
+          selectedChannel &&
+            selectedChannel.available !== false &&
+            (selectedChannel.fields || []).every(
+              (field) =>
+                !field.required ||
+                String(channelOptions[field.key] ?? field.default ?? '').trim() !== '',
+            ),
+        )
 
       if (error && !status) {
         return h(
@@ -1389,7 +1459,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                         Boolean(running) ||
                         Boolean(busy) ||
                         (needsLogin && !loggedIn) ||
-                        !qqReady,
+                        !channelReady,
                       onClick: () => startRun(false),
                     },
                     busy === 'run' ? '正在开始…' : '开始刷一轮',
@@ -1415,8 +1485,8 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                   h(
                     'div',
                     { 'data-bf-hint': '' },
-                    `${needsLogin ? (loggedIn ? '登录状态：正常' : '未登录：只 QQ 推送可用，收藏需要登录') : '只 QQ 推送：不需要 B站登录'}${
-                      needsQQ && !qqReady ? ' · 请先在偏好里填 QQ 目标' : ''
+                    `${needsLogin ? (loggedIn ? '登录状态：正常' : '未登录：只第三方渠道可用，收藏需要登录') : '只第三方渠道：不需要 B站登录'}${
+                      needsChannel && !channelReady ? ' · 请先选好渠道并填必填项' : ''
                     }`,
                   ),
                 ),
@@ -1427,7 +1497,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                     form?.deepRead ?? 8
                   } 条读内容，最后最多挑 ${form?.count ?? 5} 条。当前投递：${deliveryLabel(
                     deliveryMode,
-                  )}${needsQQ ? ` · QQ 目标：${form?.qqTarget || '未填'}` : ''}。判断用当前默认模型，会消耗 token。`,
+                  )}${needsChannel ? ` · 渠道：${selectedChannel?.label || '未选'}` : ''}。判断用当前默认模型，会消耗 token。`,
                 ),
                 status?.note ? h('div', { 'data-bf-msg': '' }, status.note) : null,
                 h(Notice, { notice }),
@@ -1478,9 +1548,9 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
               save: savePreferences,
               loadFolders,
               notice,
-              qqMessage,
-              loadQQTargets,
-              testQQ,
+              channelMessage,
+              listChannelTargets,
+              testChannel,
             })
           : null,
         tab === 'history'

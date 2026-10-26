@@ -19,9 +19,8 @@ test('defaults use 大肥鱼推荐 and safe limits', () => {
   const config = sanitizeConfig({})
   assert.equal(config.folderName, '大肥鱼推荐')
   assert.equal(config.deliveryMode, 'favorite')
-  assert.equal(config.qqTarget, '')
-  assert.equal(config.qqScope, 'auto')
-  assert.equal(config.qqTool, 'qq_send__standard')
+  assert.equal(config.channelId, '')
+  assert.deepEqual(config.channelOptions, {})
   assert.equal(config.scan, DEFAULT_CONFIG.scan)
   assert.equal(config.deepRead, DEFAULT_CONFIG.deepRead)
   assert.equal(config.count, DEFAULT_CONFIG.count)
@@ -36,8 +35,8 @@ test('clamps user values instead of trusting the form', () => {
     count: 99,
     folderName: 'x'.repeat(30),
     deliveryMode: 'nope',
-    qqTarget: 'y'.repeat(300),
-    qqScope: 'nope',
+    channelId: 'x'.repeat(50),
+    channelOptions: { qq: { target: 'y'.repeat(600), scope: 'group' } },
     autoRun: { enabled: true, time: '25:99' },
   })
   assert.equal(config.scan, 30)
@@ -45,8 +44,8 @@ test('clamps user values instead of trusting the form', () => {
   assert.equal(config.count, 10)
   assert.equal(config.folderName.length, 20)
   assert.equal(config.deliveryMode, 'favorite')
-  assert.equal(config.qqTarget.length, 200)
-  assert.equal(config.qqScope, 'auto')
+  assert.equal(config.channelId.length, 40)
+  assert.equal(config.channelOptions.qq.target.length, 500)
   assert.equal(config.autoRun.enabled, true)
   assert.equal(config.autoRun.time, '12:30')
 })
@@ -57,9 +56,8 @@ test('config round-trips through the plugin home', () => {
     const saved = saveConfig(home, {
       folderName: '测试夹',
       deliveryMode: 'both',
-      qqTarget: '测试群',
-      qqScope: 'group',
-      qqTool: 'qq_send__test',
+      channelId: 'qq',
+      channelOptions: { qq: { target: '测试群', scope: 'group', tool: 'qq_send__test' } },
       scan: 12,
       deepRead: 4,
       count: 2,
@@ -70,14 +68,30 @@ test('config round-trips through the plugin home', () => {
     assert.deepEqual(loaded, saved)
     assert.equal(loaded.folderName, '测试夹')
     assert.equal(loaded.deliveryMode, 'both')
-    assert.equal(loaded.qqTarget, '测试群')
-    assert.equal(loaded.qqScope, 'group')
-    assert.equal(loaded.qqTool, 'qq_send__test')
+    assert.equal(loaded.channelId, 'qq')
+    assert.equal(loaded.channelOptions.qq.target, '测试群')
+    assert.equal(loaded.channelOptions.qq.scope, 'group')
+    assert.equal(loaded.channelOptions.qq.tool, 'qq_send__test')
     assert.equal(loaded.autoRun.time, '23:59')
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('legacy QQ config migrates to the generic channel fields', () => {
+  const config = sanitizeConfig({
+    deliveryMode: 'qq',
+    qqTarget: '旧群',
+    qqScope: 'group',
+    qqTool: 'qq_send__legacy',
+  })
+  assert.equal(config.deliveryMode, 'channel')
+  assert.equal(config.channelId, 'qq')
+  assert.equal(config.channelOptions.qq.target, '旧群')
+  assert.equal(config.channelOptions.qq.scope, 'group')
+  assert.equal(config.channelOptions.qq.tool, 'qq_send__legacy')
+})
+
 
 test('seen map persists and expires by timestamp', () => {
   const home = mkdtempSync(join(tmpdir(), 'bili-fav-seen-'))
