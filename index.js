@@ -51,7 +51,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.2.0-beta.3'
+let VERSION = '0.2.0-beta.5'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -167,6 +167,7 @@ export function apply(ctx) {
   const files = paths(home)
   const log = makeLogger(files.log)
   const channels = createChannelRegistry()
+  channels.dataDir = home
   try {
     channels.register(createWebhookChannel())
   } catch (error) {
@@ -756,7 +757,7 @@ export function apply(ctx) {
         }
         const options = config.channelOptions?.[config.channelId] || {}
         const missing = (channelDescriptor.fields || [])
-          .filter((field) => field.required && !String(options[field.key] ?? '').trim())
+          .filter((field) => field.required && !String(options[field.key] ?? field.default ?? '').trim())
           .map((field) => field.label || field.key)
         if (missing.length > 0) {
           return {
@@ -1001,7 +1002,7 @@ export function apply(ctx) {
         const result = await channels.listTargets(channelId, options, {
           signal: AbortSignal.timeout(60_000),
         })
-        sendJson(res, 200, { ok: true, message: result.message, channel: result.channel })
+        sendJson(res, 200, { ok: true, message: result.message, channel: result.channel, targets: result.targets || [] })
         return
       }
 

@@ -35,7 +35,7 @@
 | **只第三方渠道** | 把「标题 + BV 链接 + 理由」交给选中的渠道，不写收藏夹 | 安装并启用至少一个渠道插件 |
 | **两者都要** | 收藏夹和渠道各走一遍；一路失败会标在记录里 | 两者都需要 |
 
-核心包里没有任何 QQ 代码；内置的 **Webhook** 是通用 HTTP 渠道，不需要 QQ Bot。QQ 推送由独立包 **`dsh-bili-fav-qq`** 提供（源码在 `packages/dsh-bili-fav-qq`）：它**直接调用腾讯 QQ 官方 Bot API**，不依赖 QQ Bot 插件；安装并启用后，设置页会出现 **QQ Bot（官方 API）** 渠道，字段为 AppID / ClientSecret / 目标 openid / 目标类型 / 可选 msg_id。
+核心包里没有任何 QQ 代码；内置的 **Webhook** 是通用 HTTP 渠道，不需要 QQ Bot。QQ 推送由独立包 **`dsh-bili-fav-qq`** 提供（源码在 `packages/dsh-bili-fav-qq`）：它**直接调用腾讯 QQ 官方 Bot API**，不依赖 QQ Bot 插件；安装并启用后，设置页会出现 **QQ Bot（官方 API）** 渠道，字段为 AppID / ClientSecret / 目标（可选下拉，官方事件网关自动收集，也可手动填 openid）/ 手动目标类型 / 可选 msg_id；留空会用上次成功目标。
 
 「只第三方渠道」不要求 B站登录（用游客推荐流；个性化推荐和字幕仍需登录）。渠道主动消息的配额/权限由渠道自己负责，失败原因会写进运行记录。
 
@@ -102,6 +102,7 @@ export function apply(ctx) {
 - `listTargets(options, { signal })`：可选，设置页「读取目标」
 - `test(options, { signal })`：可选，设置页「测试发送」
 - `available()`：可选，返回 false 时渠道在 UI 里标为不可用
+- 渠道可以调用 `ctx.biliFavChannels.updateFields(id, fields)` 动态更新下拉选项；`ctx.biliFavChannels.dataDir` 是核心数据目录
 
 核心会按 `channelId` 选择渠道、按 `fields` 渲染表单，并把 `channelOptions[channelId]` 原样交给渠道。渠道插件可以独立安装、升级、卸载。
 

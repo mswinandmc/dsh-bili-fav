@@ -41,7 +41,7 @@ test('adapter registers the official QQ channel', () => {
   assert.equal(registered.available(), true)
   assert.deepEqual(
     registered.fields.map((field) => field.key),
-    ['appId', 'appSecret', 'target', 'targetType', 'msgId'],
+    ['appId', 'appSecret', 'target', 'targetManual', 'targetType', 'msgId'],
   )
 })
 

@@ -672,6 +672,33 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         h(
           'div',
           { 'data-bf-section': '' },
+          h(
+            'div',
+            { 'data-bf-row': '' },
+            h(
+              'div',
+              { 'data-bf-col': '' },
+              h('div', { 'data-bf-label': '' }, '偏好'),
+              h('div', { 'data-bf-note': '' }, '改完点保存；直接开始刷也会自动保存。'),
+            ),
+            h('div', { 'data-bf-grow': '' }),
+            h(
+              'button',
+              {
+                type: 'button',
+                'data-bf-btn': '',
+                'data-bf-primary': '',
+                disabled: Boolean(busy),
+                onClick: save,
+              },
+              busy === 'save' ? '保存中…' : '保存偏好',
+            ),
+          ),
+          h(Notice, { notice }),
+        ),
+        h(
+          'div',
+          { 'data-bf-section': '' },
           h('div', { 'data-bf-label': '' }, '它怎么挑'),
           h(
             'div',
@@ -880,6 +907,13 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                             const value = channelOptions[field.key] ?? field.default ?? ''
                             const label = `${field.label || field.key}${field.required ? ' *' : ''}`
                             if (field.type === 'select') {
+                              const normalizedValue = String(value ?? '')
+                              const options = Array.isArray(field.options) ? field.options : []
+                              const optionValues = new Set(options.map((option) => option.value))
+                              const extraOptions =
+                                normalizedValue && !optionValues.has(normalizedValue)
+                                  ? [{ value: normalizedValue, label: `当前值：${normalizedValue}` }]
+                                  : []
                               return h(
                                 'div',
                                 { key: field.key, 'data-bf-field': '' },
@@ -891,7 +925,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                                     value,
                                     onChange: (event) => setChannelOption(field.key, event.target.value),
                                   },
-                                  (field.options || []).map((option) =>
+                                  [...extraOptions, ...options].map((option) =>
                                     h('option', { key: option.value, value: option.value }, option.label),
                                   ),
                                 ),
@@ -1031,17 +1065,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                 }),
               )
             : null,
-          h(
-            'div',
-            { 'data-bf-row': '' },
-            h('div', { 'data-bf-hint': '', 'data-bf-grow': '' }, '收藏夹不会公开你的账号信息；视频是否可见由收藏夹的公开/私密设置决定。'),
-            h(
-              'button',
-              { type: 'button', 'data-bf-btn': '', 'data-bf-primary': '', disabled: Boolean(busy), onClick: save },
-              busy === 'save' ? '保存中…' : '保存',
-            ),
-          ),
-          h(Notice, { notice }),
+          h('div', { 'data-bf-note': '' }, '收藏夹不会公开你的账号信息；视频是否可见由收藏夹的公开/私密设置决定。'),
         ),
         h(
           'div',
@@ -1249,6 +1273,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
             options: form.channelOptions?.[form.channelId] || {},
           })
           setChannelMessage({ tone: 'ok', text: result.message || '（没有返回目标列表）' })
+          await refresh()
         } catch (channelError) {
           setChannelMessage({ tone: 'error', text: channelError.message || '读取渠道目标失败' })
         } finally {
