@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { BiliApi, BiliError } from './lib/bili.js'
 import { createChannelRegistry } from './lib/channels.js'
 import { createWebhookChannel } from './lib/webhook.js'
+import { formatChatReply } from './lib/chat.js'
 import { curate } from './lib/judge.js'
 import { qrSvg } from './lib/qr.js'
 import {
@@ -51,7 +52,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.2.0-beta.5'
+let VERSION = '0.2.0-beta.6'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -252,6 +253,7 @@ export function apply(ctx) {
       lines.push('')
     })
     if (mode !== 'channel' && favoriteLink) lines.push(`收藏夹：${favoriteLink}`)
+    lines.push('想换一批，或者问某条的理由，直接回我就行。')
     return lines.join('\n').trim().slice(0, 3800)
   }
 
@@ -704,7 +706,7 @@ export function apply(ctx) {
     }
   }
 
-  function startRun({ dryRun = false, count = null, trigger = 'manual' } = {}) {
+  function startRun({ dryRun = false, count = null, trigger = 'manual', guidance = null } = {}) {
     if (current) {
       return { ok: false, started: false, reason: 'running', message: '已经有一轮在跑了，等它结束。' }
     }
@@ -772,6 +774,10 @@ export function apply(ctx) {
     const cfg = {
       ...config,
       deliveryMode: mode,
+      guidance:
+        guidance === null || guidance === undefined
+          ? config.guidance
+          : String(guidance).trim().slice(0, 4000) || config.guidance,
       count: count === null || count === undefined ? config.count : clampInt(count, 1, 10, config.count),
     }
     const controller = new AbortController()
@@ -1111,6 +1117,48 @@ export function apply(ctx) {
       if (!started.started) return { ok: false, ...started }
       const run = await started.promise
       return { ok: run.status === 'ok' || run.status === 'partial', run: summarizeRun(run) }
+    },
+  })
+
+  registerTool({
+    name: 'bili_fav_recommend',
+    description:
+      '当用户在对话里让你推荐 B站视频、换一批，或者问“有什么好看/为什么推这个”时使用：把用户这句话作为一次性偏好，即时刷一轮推荐流，返回可以直接发给用户的推荐清单和理由。不收藏、不推送，也不修改已保存的偏好。追问上一批某条推荐的理由时，先读 bili_fav_status 的 lastRun，不要重新刷。',
+    parameters: {
+      type: 'object',
+      properties: {
+        message: {
+          type: 'string',
+          description: '用户原话或这次想看的方向',
+        },
+        count: {
+          type: 'number',
+          description: '最多推几条（1-5，默认 3）',
+        },
+      },
+      required: ['message'],
+    },
+    timeoutMs: 240_000,
+    async execute(args, exec) {
+      const message = String(args?.message || '').trim().slice(0, 2000)
+      if (!message) return { ok: false, error: '缺少用户这句话' }
+      const count = args?.count === undefined ? 3 : clampInt(args.count, 1, 5, 3)
+      const started = startRun({ dryRun: true, count, trigger: 'chat', guidance: message })
+      if (!started.started) return { ok: false, ...started }
+      const onAbort = () => abortRun()
+      exec?.signal?.addEventListener?.('abort', onAbort, { once: true })
+      try {
+        const run = await started.promise
+        return {
+          ok: run.status === 'ok' || run.status === 'partial',
+          reply: formatChatReply(run.picks || []),
+          picks: (run.picks || []).map(publicPick),
+          run: summarizeRun(run),
+          ...(run.status === 'error' ? { error: run.error } : {}),
+        }
+      } finally {
+        exec?.signal?.removeEventListener?.('abort', onAbort)
+      }
     },
   })
 

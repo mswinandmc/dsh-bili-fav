@@ -390,7 +390,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
           h(
             'span',
             { 'data-bf-meta': '' },
-            `${run.dryRun ? '试刷' : run.trigger === 'auto' ? '自动' : run.trigger === 'tool' ? '对话' : '手动'} · ${deliveryLabel(
+            `${run.trigger === 'chat' ? '对话' : run.dryRun ? '试刷' : run.trigger === 'auto' ? '自动' : run.trigger === 'tool' ? '对话' : '手动'} · ${deliveryLabel(
               run.delivery,
             )} · ${run.model || '模型未知'}`,
           ),

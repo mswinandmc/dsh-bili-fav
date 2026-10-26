@@ -1,6 +1,6 @@
 {
   "name": "dsh-bili-fav",
-  "version": "0.2.0-beta.5",
+  "version": "0.2.0-beta.6",
   "description": "用你的 B站账号刷推荐流，让模型自己点开视频、读字幕、按自己的品味挑片，并收藏到你自定义的收藏夹。",
   "type": "module",
   "main": "index.js",
