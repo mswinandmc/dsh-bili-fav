@@ -97,6 +97,11 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
 [data-bf-msg][data-bf-tone=ok]{color:var(--dsw-alias-state-success-primary);}
 [data-bf-msg][data-bf-tone=warn]{color:var(--dsw-alias-state-warn-primary);}
 [data-bf-msg][data-bf-tone=error]{color:var(--dsw-alias-state-error-primary);}
+[data-bf-pre]{margin:0;padding:9px 10px;max-height:240px;overflow:auto;white-space:pre-wrap;word-break:break-word;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;line-height:17px;
+  color:var(--dsw-alias-label-secondary);background:var(--dsw-alias-bg-layer-2);
+  border:1px solid var(--dsw-alias-border-l1);border-radius:8px;}
+[data-bf-pre][data-bf-tone=error]{color:var(--dsw-alias-state-error-primary);}
 [data-bf-progress]{display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:10px;
   background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);}
 [data-bf-bar]{height:4px;border-radius:2px;overflow:hidden;background:var(--dsw-alias-bg-layer-1);}
@@ -114,6 +119,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
 [data-bf-state][data-bf-tone=warn]{color:var(--dsw-alias-state-warn-primary);}
 [data-bf-state][data-bf-tone=error]{color:var(--dsw-alias-state-error-primary);}
 [data-bf-meta]{font-size:11px;line-height:18px;color:var(--dsw-alias-label-secondary);}
+[data-bf-meta][data-bf-tone=error]{color:var(--dsw-alias-state-error-primary);}
 [data-bf-grid]{display:grid;grid-template-columns:repeat(auto-fill,minmax(214px,1fr));gap:10px;}
 [data-bf-card]{display:flex;flex-direction:column;overflow:hidden;border-radius:10px;text-decoration:none;
   color:inherit;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l2);}
@@ -127,6 +133,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
 [data-bf-reason]{font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);margin:2px 0 0;
   display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
 [data-bf-reason][data-bf-tone=error]{color:var(--dsw-alias-state-error-primary);}
+[data-bf-reason][data-bf-tone=ok]{color:var(--dsw-alias-state-success-primary);}
 [data-bf-cards]{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px;}
 [data-bf-details]{font-size:12px;}
 [data-bf-details] summary{cursor:pointer;color:var(--dsw-alias-label-secondary);user-select:none;}
@@ -228,6 +235,12 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
       return status || '未知'
     }
 
+    function deliveryLabel(mode) {
+      if (mode === 'qq') return '只 QQ 推送'
+      if (mode === 'both') return '收藏 + QQ'
+      return '只收藏'
+    }
+
     function toForm(configuration) {
       const config = configuration || {}
       return {
@@ -235,7 +248,13 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         scan: Number(config.scan) || 20,
         deepRead: Number(config.deepRead) || 8,
         count: Number(config.count) || 5,
+        deliveryMode: ['favorite', 'qq', 'both'].includes(config.deliveryMode)
+          ? config.deliveryMode
+          : 'favorite',
         folderName: String(config.folderName || '大肥鱼推荐'),
+        qqTarget: String(config.qqTarget || ''),
+        qqScope: ['auto', 'group', 'c2c'].includes(config.qqScope) ? config.qqScope : 'auto',
+        qqTool: String(config.qqTool || 'qq_send__standard'),
         readSubtitles: config.readSubtitles !== false,
         autoEnabled: Boolean(config.autoRun && config.autoRun.enabled),
         autoTime: String((config.autoRun && config.autoRun.time) || '12:30'),
@@ -248,7 +267,11 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         scan: form.scan,
         deepRead: form.deepRead,
         count: form.count,
+        deliveryMode: form.deliveryMode,
         folderName: form.folderName,
+        qqTarget: form.qqTarget,
+        qqScope: form.qqScope,
+        qqTool: form.qqTool,
         readSubtitles: form.readSubtitles,
         autoRun: { enabled: form.autoEnabled, time: form.autoTime },
       }
@@ -309,10 +332,12 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
             ? h('p', { 'data-bf-reason': '' }, pick.reason)
             : null,
           failed
-            ? h('p', { 'data-bf-reason': '', 'data-bf-tone': 'error' }, `收藏失败：${pick.error || '未知原因'}`)
+            ? h('p', { 'data-bf-reason': '', 'data-bf-tone': 'error' }, `收藏/推送失败：${pick.error || '未知原因'}`)
             : pick.status === 'saved'
               ? h('p', { 'data-bf-reason': '', 'data-bf-tone': 'ok' }, '已收藏')
-              : null,
+              : pick.status === 'pushed'
+                ? h('p', { 'data-bf-reason': '', 'data-bf-tone': 'ok' }, '已推送 QQ')
+                : null,
         ),
       )
     }
@@ -364,9 +389,9 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
           h(
             'span',
             { 'data-bf-meta': '' },
-            `${run.dryRun ? '试刷' : run.trigger === 'auto' ? '自动' : run.trigger === 'tool' ? '对话' : '手动'} · ${
-              run.model || '模型未知'
-            }`,
+            `${run.dryRun ? '试刷' : run.trigger === 'auto' ? '自动' : run.trigger === 'tool' ? '对话' : '手动'} · ${deliveryLabel(
+              run.delivery,
+            )} · ${run.model || '模型未知'}`,
           ),
           h('time', null, formatDate(run.finishedAt || run.startedAt)),
           onCopy
@@ -394,16 +419,27 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
           { 'data-bf-meta': '' },
           `扫了 ${run.scanned || 0} 条 · 点开 ${run.watched || 0} 条${
             run.subtitleVideos ? `（${run.subtitleVideos} 条有字幕）` : ''
-          } · ${run.dryRun ? '想收藏' : '收藏'} ${picks.length} 条${
+          } · ${run.dryRun ? '想挑' : '挑了'} ${picks.length} 条${
             run.folder ? ` · 「${run.folder}」` : ''
           }`,
         ),
+        run.delivery !== 'favorite' && !run.dryRun
+          ? h(
+              'div',
+              { 'data-bf-meta': '', 'data-bf-tone': run.qqError ? 'error' : '' },
+              run.qqError
+                ? `QQ 推送失败：${run.qqError}`
+                : run.qqSent
+                  ? `QQ 已推送 ${run.qqSent} 条${run.qqTarget ? ` → ${run.qqTarget}` : ''}`
+                  : 'QQ 未推送',
+            )
+          : null,
         run.note ? h('div', { 'data-bf-msg': '', 'data-bf-tone': run.status === 'error' ? 'error' : '' }, run.note) : null,
         run.error ? h('div', { 'data-bf-msg': '', 'data-bf-tone': 'error' }, run.error) : null,
         isExpanded
           ? picks.length
             ? h('div', { 'data-bf-cards': '' }, picks.map((pick) => h(PickCard, { key: pick.bvid, pick })))
-            : h('div', { 'data-bf-empty': '' }, '这一轮没有收藏任何视频。')
+            : h('div', { 'data-bf-empty': '' }, '这一轮没有挑中视频。')
           : null,
         isExpanded ? h(Shortlist, { run }) : null,
       )
@@ -420,6 +456,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         整理收藏结果: '正在整理结果',
         准备收藏夹: '正在准备收藏夹',
         收藏到: '正在收藏',
+        '推送到 QQ': '正在推送到 QQ',
       }
       let phase = running.phase || '准备中'
       for (const key of Object.keys(labels)) {
@@ -590,10 +627,38 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
       )
     }
 
-    function Preferences({ status, form, setForm, folders, busy, save, loadFolders, notice }) {
+    function Preferences({
+      status,
+      form,
+      setForm,
+      folders,
+      busy,
+      save,
+      loadFolders,
+      notice,
+      qqMessage,
+      loadQQTargets,
+      testQQ,
+    }) {
       if (!form) return null
       const update = (patch) => setForm((current) => ({ ...current, ...patch }))
       const folderNames = Array.isArray(folders) ? folders.map((item) => item.title) : []
+      const qqTools = Array.isArray(status?.qq?.tools) ? status.qq.tools : []
+      const qqToolOptions = qqTools.length
+        ? qqTools.includes(form.qqTool)
+          ? qqTools
+          : [form.qqTool, ...qqTools].filter(Boolean)
+        : form.qqTool
+          ? [form.qqTool]
+          : []
+      const modeNeedsFavorite = form.deliveryMode !== 'qq'
+      const modeNeedsQQ = form.deliveryMode !== 'favorite'
+      const MODES = [
+        ['favorite', '只收藏', '挑中的视频写进 B站收藏夹；不发送 QQ。'],
+        ['qq', '只 QQ 推送', '把推荐清单发到 QQ；不写收藏夹。B站未登录也能用游客推荐流。'],
+        ['both', '两者都要', '收藏夹和 QQ 都走；任意一路失败会标在记录里。'],
+      ]
+      const modeDescription = (MODES.find(([value]) => value === form.deliveryMode) || MODES[0])[2]
       return h(
         React.Fragment,
         null,
@@ -652,7 +717,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
             h(
               'div',
               { 'data-bf-field': '' },
-              h('label', { 'data-bf-note': '' }, '最后最多收藏几条'),
+              h('label', { 'data-bf-note': '' }, '最后最多挑几条'),
               h('input', {
                 'data-bf-input': '',
                 'data-bf-num': '',
@@ -668,7 +733,50 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         h(
           'div',
           { 'data-bf-section': '' },
+          h('div', { 'data-bf-label': '' }, '投递方式'),
+          h(
+            'div',
+            { 'data-bf-note': '' },
+            '挑完视频后怎么处理：只写 B站收藏夹、只发 QQ，或者两边都做。收藏需要登录 B站；QQ 推送需要已绑定 QQ Bot 人设。',
+          ),
+          h(
+            'div',
+            { 'data-bf-chiprow': '', role: 'group', 'aria-label': '投递方式' },
+            MODES.map(([value, label]) =>
+              h(
+                'button',
+                {
+                  key: value,
+                  type: 'button',
+                  'data-bf-chip': '',
+                  'aria-pressed': form.deliveryMode === value ? 'true' : 'false',
+                  onClick: () => update({ deliveryMode: value }),
+                },
+                label,
+              ),
+            ),
+          ),
+          h('div', { 'data-bf-note': '' }, modeDescription),
+          modeNeedsQQ
+            ? h(
+                'div',
+                {
+                  'data-bf-note': '',
+                  ...(qqTools.length ? {} : { 'data-bf-warn': '' }),
+                },
+                qqTools.length
+                  ? `QQ 推送工具：${form.qqTool}（已检测到 ${qqTools.length} 个）。`
+                  : '还没有检测到 qq_send 工具：请先到 设置 → QQ Bot 绑定一个人设。',
+              )
+            : null,
+        ),
+        h(
+          'div',
+          { 'data-bf-section': '' },
           h('div', { 'data-bf-label': '' }, '收藏到哪个收藏夹'),
+          !modeNeedsFavorite
+            ? h('div', { 'data-bf-note': '', 'data-bf-warn': '' }, '当前是「只 QQ 推送」，下面的收藏夹设置不会使用。')
+            : null,
           h('input', {
             'data-bf-input': '',
             value: form.folderName,
@@ -717,6 +825,104 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
               )
             : h('div', { 'data-bf-note': '' }, '登录后才能读取已有收藏夹；现在也可以直接填名字。'),
         ),
+        modeNeedsQQ
+          ? h(
+              'div',
+              { 'data-bf-section': '' },
+              h('div', { 'data-bf-label': '' }, 'QQ 推送'),
+              h(
+                'div',
+                { 'data-bf-note': '' },
+                '挑完后把「标题 + BV 链接 + 理由」发到这个目标。先用「读取 QQ 目标」找群名/openid；「测试发送」会真的发一条 QQ 消息。',
+              ),
+              h(
+                'div',
+                { 'data-bf-field': '' },
+                h('label', { 'data-bf-note': '' }, '推送到'),
+                h('input', {
+                  'data-bf-input': '',
+                  value: form.qqTarget || '',
+                  maxLength: 200,
+                  placeholder: '群名 / 群 openid / 好友昵称',
+                  onChange: (event) => update({ qqTarget: event.target.value }),
+                }),
+              ),
+              h(
+                'div',
+                { 'data-bf-row': '' },
+                h(
+                  'div',
+                  { 'data-bf-field': '' },
+                  h('label', { 'data-bf-note': '' }, '目标类型'),
+                  h(
+                    'select',
+                    {
+                      'data-bf-input': '',
+                      value: form.qqScope || 'auto',
+                      onChange: (event) => update({ qqScope: event.target.value }),
+                    },
+                    h('option', { value: 'auto' }, '自动识别'),
+                    h('option', { value: 'group' }, '群聊'),
+                    h('option', { value: 'c2c' }, '私聊'),
+                  ),
+                ),
+                h(
+                  'div',
+                  { 'data-bf-field': '' },
+                  h('label', { 'data-bf-note': '' }, 'QQ 发送工具'),
+                  qqToolOptions.length
+                    ? h(
+                        'select',
+                        {
+                          'data-bf-input': '',
+                          value: form.qqTool || '',
+                          onChange: (event) => update({ qqTool: event.target.value }),
+                        },
+                        qqToolOptions.map((name) => h('option', { key: name, value: name }, name)),
+                      )
+                    : h('input', {
+                        'data-bf-input': '',
+                        value: form.qqTool || '',
+                        onChange: (event) => update({ qqTool: event.target.value }),
+                      }),
+                ),
+              ),
+              h(
+                'div',
+                { 'data-bf-row': '' },
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    'data-bf-btn': '',
+                    disabled: Boolean(busy),
+                    onClick: loadQQTargets,
+                  },
+                  busy === 'qq-list' ? '读取中…' : '读取 QQ 目标',
+                ),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    'data-bf-btn': '',
+                    disabled: Boolean(busy) || !String(form.qqTarget || '').trim(),
+                    onClick: testQQ,
+                  },
+                  busy === 'qq-test' ? '发送中…' : '测试发送',
+                ),
+              ),
+              qqMessage
+                ? h('pre', { 'data-bf-pre': '', 'data-bf-tone': qqMessage.tone || '' }, qqMessage.text)
+                : null,
+              qqTools.length === 0
+                ? h(
+                    'div',
+                    { 'data-bf-note': '', 'data-bf-warn': '' },
+                    '未检测到 qq_send 工具。请先在 设置 → QQ Bot 里绑定一个 QQ 人设，再刷新本页。',
+                  )
+                : null,
+            )
+          : null,
         h(
           'div',
           { 'data-bf-section': '' },
@@ -838,6 +1044,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
       const [expandedRun, setExpandedRun] = useState(null)
       const [copyBusy, setCopyBusy] = useState('')
       const [confirmLogout, setConfirmLogout] = useState(false)
+      const [qqMessage, setQqMessage] = useState(null)
       const aliveRef = useRef(true)
       const formTouched = useRef(false)
 
@@ -977,6 +1184,41 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         }
       }
 
+      async function loadQQTargets() {
+        setBusy('qq-list')
+        setQqMessage(null)
+        try {
+          const result = await jget('/qq-targets')
+          setQqMessage({ tone: 'ok', text: result.message || '（没有返回目标列表）' })
+        } catch (qqError) {
+          setQqMessage({ tone: 'error', text: qqError.message || '读取 QQ 目标失败' })
+        } finally {
+          setBusy('')
+        }
+      }
+
+      async function testQQ() {
+        const target = String(form?.qqTarget || '').trim()
+        if (!target) {
+          setQqMessage({ tone: 'warn', text: '先在「推送到」里填 QQ 目标，再测试。' })
+          return
+        }
+        setBusy('qq-test')
+        setQqMessage(null)
+        try {
+          const result = await jpost('/qq-test', {
+            target,
+            scope: form?.qqScope,
+            tool: form?.qqTool,
+          })
+          setQqMessage({ tone: 'ok', text: result.message || '测试消息已发送' })
+        } catch (qqError) {
+          setQqMessage({ tone: 'error', text: qqError.message || '测试发送失败' })
+        } finally {
+          setBusy('')
+        }
+      }
+
       async function savePreferences() {
         if (!form) return
         setBusy('save')
@@ -995,9 +1237,15 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
       }
 
       async function startRun(dryRun) {
+        if (!form) return
         setBusy(dryRun ? 'preview' : 'run')
         setNotice(null)
         try {
+          // Save the visible preferences first so mode/target edits take effect
+          // even if the user did not press 保存 explicitly.
+          const saved = await jpost('/config', { config: payloadOf(form) })
+          formTouched.current = false
+          setForm(toForm(saved.config))
           const result = await jpost('/run', { dryRun })
           if (!result.ok) {
             setNotice({ tone: 'warn', text: result.message || result.reason || '暂时不能开始' })
@@ -1005,7 +1253,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
           }
           setNotice({
             tone: 'ok',
-            text: dryRun ? '开始试刷：只看不收藏' : '开始刷一轮，它正在自己挑',
+            text: dryRun ? '开始试刷：只预览，不收藏、不推送' : '开始刷一轮，它正在自己挑',
           })
           await refresh()
         } catch (runError) {
@@ -1049,6 +1297,10 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
       const latestRun = status?.lastRun || null
       const loggedIn = status?.login?.state === 'logged-in'
       const qrVisible = Boolean(qr)
+      const deliveryMode = form?.deliveryMode || status?.config?.deliveryMode || 'favorite'
+      const needsLogin = deliveryMode !== 'qq'
+      const needsQQ = deliveryMode !== 'favorite'
+      const qqReady = !needsQQ || Boolean(String(form?.qqTarget || '').trim())
 
       if (error && !status) {
         return h(
@@ -1133,7 +1385,11 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                       type: 'button',
                       'data-bf-btn': '',
                       'data-bf-primary': '',
-                      disabled: Boolean(running) || Boolean(busy) || !loggedIn,
+                      disabled:
+                        Boolean(running) ||
+                        Boolean(busy) ||
+                        (needsLogin && !loggedIn) ||
+                        !qqReady,
                       onClick: () => startRun(false),
                     },
                     busy === 'run' ? '正在开始…' : '开始刷一轮',
@@ -1146,7 +1402,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                       disabled: Boolean(running) || Boolean(busy),
                       onClick: () => startRun(true),
                     },
-                    busy === 'preview' ? '正在开始…' : '试刷（不收藏）',
+                    busy === 'preview' ? '正在开始…' : '试刷（不投递）',
                   ),
                   running
                     ? h(
@@ -1159,7 +1415,9 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                   h(
                     'div',
                     { 'data-bf-hint': '' },
-                    loggedIn ? '登录状态：正常' : '未登录：可以试刷，不能收藏',
+                    `${needsLogin ? (loggedIn ? '登录状态：正常' : '未登录：只 QQ 推送可用，收藏需要登录') : '只 QQ 推送：不需要 B站登录'}${
+                      needsQQ && !qqReady ? ' · 请先在偏好里填 QQ 目标' : ''
+                    }`,
                   ),
                 ),
                 h(
@@ -1167,8 +1425,11 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                   { 'data-bf-note': '' },
                   `这一轮会扫 ${form?.scan ?? 20} 条候选，模型最多点开 ${
                     form?.deepRead ?? 8
-                  } 条读内容，最后最多收藏 ${form?.count ?? 5} 条。判断用当前默认模型，会消耗 token。`,
+                  } 条读内容，最后最多挑 ${form?.count ?? 5} 条。当前投递：${deliveryLabel(
+                    deliveryMode,
+                  )}${needsQQ ? ` · QQ 目标：${form?.qqTarget || '未填'}` : ''}。判断用当前默认模型，会消耗 token。`,
                 ),
+                status?.note ? h('div', { 'data-bf-msg': '' }, status.note) : null,
                 h(Notice, { notice }),
                 h(Progress, { running }),
               ),
@@ -1217,6 +1478,9 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
               save: savePreferences,
               loadFolders,
               notice,
+              qqMessage,
+              loadQQTargets,
+              testQQ,
             })
           : null,
         tab === 'history'

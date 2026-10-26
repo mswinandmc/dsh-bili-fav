@@ -36,6 +36,7 @@ import {
   isAbortError,
   localDayKey,
   makeLogger,
+  oneLine,
   randomId,
   readTail,
   resolveHomeDir,
@@ -47,7 +48,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.1.0'
+let VERSION = '0.2.0'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -145,6 +146,11 @@ function summarizeRun(run) {
     subtitleVideos: run.subtitleVideos,
     model: run.model,
     folder: run.folder,
+    delivery: run.delivery,
+    qqSent: run.qqSent,
+    qqTarget: run.qqTarget,
+    qqMessage: run.qqMessage,
+    qqError: run.qqError,
     note: run.note,
     error: run.error,
     shortlist: Array.isArray(run.shortlist) ? run.shortlist : [],
@@ -196,12 +202,140 @@ export function apply(ctx) {
     }
   }
 
+  const availableQQTools = () => {
+    try {
+      const tools = ctx.get('tools')
+      const schemas = tools?.schemas?.() || []
+      return schemas
+        .map((schema) => String(schema?.name || ''))
+        .filter((toolName) => /^qq_send__[A-Za-z0-9_-]+$/.test(toolName))
+    } catch {
+      return []
+    }
+  }
+
+  const resolveQQTool = (preferred) => {
+    const tools = availableQQTools()
+    if (tools.length === 0) return ''
+    const wanted = String(preferred || config.qqTool || '').trim()
+    if (wanted && tools.includes(wanted)) return wanted
+    return tools[0]
+  }
+
+  async function callQQTool(args, { tool, signal } = {}) {
+    const name = resolveQQTool(tool)
+    if (!name) {
+      throw new Error('没有检测到 qq_send 工具；请先在 设置 → QQ Bot 里绑定一个 QQ 人设')
+    }
+    const tools = ctx.get('tools')
+    if (!tools || typeof tools.execute !== 'function') {
+      throw new Error('宿主没有提供 tools 服务')
+    }
+    const toolSignal = signal ?? AbortSignal.timeout(60_000)
+    const result = await tools.execute({
+      callId: randomId('qq'),
+      name,
+      arguments: args,
+      signal: toolSignal,
+    })
+    if (result?.isError) {
+      const text = (Array.isArray(result.content) ? result.content : [])
+        .filter((item) => item?.type === 'text')
+        .map((item) => item.text)
+        .join('\n')
+      throw new Error(text || `${name} 执行失败`)
+    }
+    const value = result?.value
+    if (value && typeof value === 'object' && value.ok === false) {
+      throw new Error(value.msg || `${name} 返回失败`)
+    }
+    const message =
+      value && typeof value === 'object'
+        ? String(value.msg || '')
+        : typeof value === 'string'
+          ? value
+          : ''
+    return { ok: true, message: message || '已发送', value, tool: name }
+  }
+
+  async function listQQTargets() {
+    return callQQTool({ action: 'list' }, { tool: config.qqTool })
+  }
+
+  async function sendQQTest({ target, scope, tool } = {}) {
+    const destination = String(target || config.qqTarget || '').trim()
+    if (!destination) throw new Error('请先填 QQ 推送目标')
+    return callQQTool(
+      {
+        action: 'send',
+        target: destination,
+        ...(scope && scope !== 'auto' ? { scope } : {}),
+        text: [
+          '🐟 大肥鱼推荐：QQ 推送联调成功',
+          new Date().toLocaleString('zh-CN'),
+          '这是一条测试消息，收到就说明「B站自主刷片 → QQ」链路通了。',
+        ].join('\n'),
+      },
+      { tool: tool || config.qqTool },
+    )
+  }
+
+  function deliveryLabel(mode) {
+    if (mode === 'qq') return '只 QQ 推送'
+    if (mode === 'both') return '收藏 + QQ'
+    return '只收藏'
+  }
+
+  function formatQQMessage({ picks, folder, mode }) {
+    const favoriteLink =
+      folder?.link ||
+      (folder?.id && api.mid ? folderLink(api.mid, folder.id) : '')
+    const lines = [
+      `🐟 大肥鱼推荐 · ${new Date().toLocaleString('zh-CN', {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      })}`,
+      `它自己刷推荐流、点开视频读字幕，最后挑了 ${picks.length} 条：`,
+      '',
+    ]
+    picks.forEach((pick, index) => {
+      lines.push(`${index + 1}. 《${oneLine(pick.title, 100)}》 — ${oneLine(pick.author, 40) || '未知 UP'}`)
+      lines.push(`   https://www.bilibili.com/video/${pick.bvid}`)
+      if (pick.reason) lines.push(`   理由：${oneLine(pick.reason, 180)}`)
+      lines.push('')
+    })
+    if (mode !== 'qq' && favoriteLink) lines.push(`收藏夹：${favoriteLink}`)
+    return lines.join('\n').trim().slice(0, 3800)
+  }
+
+  async function pushQQ({ cfg, run, picks, folder, signal }) {
+    const text = formatQQMessage({ picks, folder, mode: cfg.deliveryMode })
+    const result = await callQQTool(
+      {
+        action: 'send',
+        target: cfg.qqTarget,
+        ...(cfg.qqScope && cfg.qqScope !== 'auto' ? { scope: cfg.qqScope } : {}),
+        text,
+      },
+      { tool: cfg.qqTool, signal },
+    )
+    run.qqSent = picks.length
+    run.qqTarget = cfg.qqTarget
+    run.qqMessage = result.message
+    log(`QQ 推送成功：${picks.length} 条 → ${cfg.qqTarget}`)
+    return result
+  }
+
   const publicStatus = () => {
     try {
       config = loadConfig(home)
     } catch (error) {
       log(`重新读取配置失败：${errorMessage(error)}`)
     }
+    const qqTools = availableQQTools()
+    const mode = config.deliveryMode
     return {
       ok: true,
       version: VERSION,
@@ -214,6 +348,13 @@ export function apply(ctx) {
       },
       folder: folderState(),
       model: liveModel(),
+      qq: {
+        tools: qqTools,
+        tool: resolveQQTool(config.qqTool),
+        target: config.qqTarget,
+        scope: config.qqScope,
+        online: qqTools.length > 0,
+      },
       running: current
         ? {
             id: current.id,
@@ -225,6 +366,8 @@ export function apply(ctx) {
             watched: current.watched,
             dryRun: current.dryRun,
             trigger: current.trigger,
+            delivery: current.delivery,
+            qqTarget: current.qqTarget,
             shortlist: current.shortlist || [],
             picks: (current.picks || []).map(publicPick),
           }
@@ -232,9 +375,13 @@ export function apply(ctx) {
       lastRun: summarizeRun(state.runs[0] || null),
       history: state.runs.slice(0, 8).map(summarizeRun),
       logTail: readTail(files.log, 1400),
-      note: api.loggedIn
-        ? ''
-        : '未登录时可以「试刷」：用游客推荐流让模型挑一遍，不会写入收藏夹。',
+      note: !api.loggedIn
+        ? mode === 'qq'
+          ? 'QQ 推送模式不需要 B站登录：可以用游客推荐流；个性化推荐和字幕仍需要登录。'
+          : '未登录时可以「试刷」：用游客推荐流让模型挑一遍，不会写入收藏夹。'
+        : mode !== 'favorite' && qqTools.length === 0
+          ? '没有检测到 qq_send 工具；请先在 设置 → QQ Bot 里绑定一个 QQ 人设。'
+          : '',
     }
   }
 
@@ -442,67 +589,155 @@ export function apply(ctx) {
         }
       })
 
+      const mode = ['favorite', 'qq', 'both'].includes(cfg.deliveryMode)
+        ? cfg.deliveryMode
+        : 'favorite'
+      const doFavorite = mode !== 'qq'
+      const doQQ = mode !== 'favorite'
+      run.delivery = mode
+      run.qqTarget = doQQ ? cfg.qqTarget : ''
+
       if (!run.picks.length) {
-        return finishRun(run, 'ok', { note: '它这一轮没有找到真正想收藏的视频。' })
+        return finishRun(run, 'ok', {
+          note: `它这一轮没有找到真正想${doFavorite && doQQ ? '收藏/推送' : doFavorite ? '收藏' : '推送'}的视频。`,
+        })
       }
 
       if (run.dryRun) {
         return finishRun(run, 'ok', {
-          note: `试刷：模型想收藏 ${run.picks.length} 条，但这次没有写入收藏夹。`,
+          note: `试刷（${deliveryLabel(mode)}）：模型想挑 ${run.picks.length} 条，这次没有写入收藏夹，也没有发送 QQ。`,
         })
       }
 
-      run.phase = `准备收藏夹「${cfg.folderName}」`
-      let folder
-      try {
-        folder = await api.ensureFolder(cfg.folderName, { signal })
-      } catch (error) {
-        throw new Error(`准备收藏夹失败：${errorMessage(error)}`)
-      }
-      run.folder = folder.title
-      try {
-        rememberFolder(home, state, folder, api.mid)
-      } catch (error) {
-        log(`记录收藏夹失败：${errorMessage(error)}`)
-      }
-
-      run.phase = `收藏到「${folder.title}」`
+      let folder = null
       let saved = 0
       let failed = 0
-      let firstError = ''
-      for (const pick of run.picks) {
-        check()
+      let favoriteError = ''
+      if (doFavorite) {
+        run.phase = `准备收藏夹「${cfg.folderName}」`
         try {
-          const aid = pick.aid || aidByBvid.get(pick.bvid) || 0
-          if (!aid) throw new Error('没有拿到视频 aid，无法收藏')
-          await api.favorite(aid, folder.id, { signal })
-          pick.status = 'saved'
-          pick.folderId = folder.id
-          pick.addedAt = new Date().toISOString()
-          markSeen(state, pick.bvid)
-          saved += 1
+          folder = await api.ensureFolder(cfg.folderName, { signal })
+          run.folder = folder.title
+          try {
+            rememberFolder(home, state, folder, api.mid)
+          } catch (error) {
+            log(`记录收藏夹失败：${errorMessage(error)}`)
+          }
         } catch (error) {
           if (isAbortError(error) || signal.aborted) throw error
-          pick.status = 'failed'
-          pick.error = errorMessage(error)
-          if (!firstError) firstError = pick.error
-          failed += 1
-          log(`收藏 ${pick.bvid} 失败：${pick.error}`)
+          favoriteError = `准备收藏夹失败：${errorMessage(error)}`
+          log(favoriteError)
         }
-        await sleep(420, signal)
+
+        if (folder) {
+          run.phase = `收藏到「${folder.title}」`
+          for (const pick of run.picks) {
+            check()
+            try {
+              const aid = pick.aid || aidByBvid.get(pick.bvid) || 0
+              if (!aid) throw new Error('没有拿到视频 aid，无法收藏')
+              await api.favorite(aid, folder.id, { signal })
+              pick.status = 'saved'
+              pick.folderId = folder.id
+              pick.addedAt = new Date().toISOString()
+              markSeen(state, pick.bvid)
+              saved += 1
+            } catch (error) {
+              if (isAbortError(error) || signal.aborted) throw error
+              pick.status = 'failed'
+              pick.error = errorMessage(error)
+              if (!favoriteError) favoriteError = pick.error
+              failed += 1
+              log(`收藏 ${pick.bvid} 失败：${pick.error}`)
+            }
+            await sleep(420, signal)
+          }
+        } else {
+          for (const pick of run.picks) {
+            pick.status = 'failed'
+            pick.error = favoriteError
+          }
+          failed = run.picks.length
+        }
       }
 
-      if (saved === 0) {
-        return finishRun(run, 'error', {
-          error: `全部收藏失败：${firstError || '未知原因'}`,
-          note: `模型挑了 ${run.picks.length} 条，但都没能写进收藏夹。`,
+      let qqOk = false
+      let qqError = ''
+      if (doQQ) {
+        run.phase = `推送到 QQ（${cfg.qqTarget}）`
+        try {
+          await pushQQ({ cfg, run, picks: run.picks, folder, signal })
+          qqOk = true
+        } catch (error) {
+          if (isAbortError(error) || signal.aborted) throw error
+          qqError = errorMessage(error)
+          run.qqError = qqError
+          log(`QQ 推送失败：${qqError}`)
+        }
+      }
+
+      const favoriteOk = saved > 0
+      if (mode === 'favorite') {
+        if (!favoriteOk) {
+          return finishRun(run, 'error', {
+            error: `全部收藏失败：${favoriteError || '未知原因'}`,
+            note: `模型挑了 ${run.picks.length} 条，但都没能写进收藏夹。`,
+          })
+        }
+        return finishRun(run, failed > 0 ? 'partial' : 'ok', {
+          note: `已收藏 ${saved} 条到「${folder.title}」${failed > 0 ? `，${failed} 条失败` : ''}`,
+          error: failed > 0 ? favoriteError : '',
         })
       }
-      return finishRun(run, failed > 0 ? 'partial' : 'ok', {
-        note: `已收藏 ${saved} 条到「${folder.title}」${
-          failed > 0 ? `，${failed} 条失败` : ''
-        }`,
-        error: failed > 0 ? firstError : '',
+
+      if (mode === 'qq') {
+        if (!qqOk) {
+          for (const pick of run.picks) {
+            pick.status = 'failed'
+            pick.error = qqError
+          }
+          return finishRun(run, 'error', {
+            error: `QQ 推送失败：${qqError}`,
+            note: `模型挑了 ${run.picks.length} 条，但没有发到 QQ。`,
+          })
+        }
+        for (const pick of run.picks) {
+          pick.status = 'pushed'
+          pick.error = ''
+          markSeen(state, pick.bvid)
+        }
+        return finishRun(run, 'ok', {
+          note: `已推送 ${run.picks.length} 条到 QQ（${cfg.qqTarget}）`,
+        })
+      }
+
+      // both
+      if (qqOk) {
+        for (const pick of run.picks) markSeen(state, pick.bvid)
+      }
+      if (favoriteOk && qqOk) {
+        return finishRun(run, failed > 0 ? 'partial' : 'ok', {
+          note: `已收藏 ${saved} 条到「${folder.title}」，并推送 ${run.picks.length} 条到 QQ（${cfg.qqTarget}）${
+            failed > 0 ? `；${failed} 条收藏失败` : ''
+          }`,
+          error: failed > 0 ? favoriteError : '',
+        })
+      }
+      if (favoriteOk && !qqOk) {
+        return finishRun(run, 'partial', {
+          note: `已收藏 ${saved} 条到「${folder.title}」；QQ 推送失败。`,
+          error: qqError,
+        })
+      }
+      if (!favoriteOk && qqOk) {
+        return finishRun(run, 'partial', {
+          note: `QQ 已推送 ${run.picks.length} 条；收藏失败。`,
+          error: favoriteError || '收藏失败',
+        })
+      }
+      return finishRun(run, 'error', {
+        error: `收藏和 QQ 推送都失败：收藏=${favoriteError || '未知'}；QQ=${qqError || '未知'}`,
+        note: `模型挑了 ${run.picks.length} 条，但两路都没成功。`,
       })
     } catch (error) {
       if (isAbortError(error) || signal.aborted) {
@@ -522,16 +757,45 @@ export function apply(ctx) {
     } catch (error) {
       log(`开始前读取配置失败：${errorMessage(error)}`)
     }
-    if (!dryRun && !api.loggedIn) {
-      return {
-        ok: false,
-        started: false,
-        reason: 'not-logged-in',
-        message: '请先在设置页扫码登录，再开始收藏。',
+    if (!dryRun) {
+      const mode = ['favorite', 'qq', 'both'].includes(config.deliveryMode)
+        ? config.deliveryMode
+        : 'favorite'
+      const doFavorite = mode !== 'qq'
+      const doQQ = mode !== 'favorite'
+      if (doFavorite && !api.loggedIn) {
+        return {
+          ok: false,
+          started: false,
+          reason: 'not-logged-in',
+          message: '请先在设置页扫码登录 B站，再开始收藏。',
+        }
+      }
+      if (doQQ && !String(config.qqTarget || '').trim()) {
+        return {
+          ok: false,
+          started: false,
+          reason: 'no-qq-target',
+          message: '请先在偏好里填 QQ 推送目标（群名、群 openid 或好友昵称）。',
+        }
+      }
+      if (doQQ && availableQQTools().length === 0) {
+        return {
+          ok: false,
+          started: false,
+          reason: 'no-qq-tool',
+          message: '没有检测到 qq_send 工具；请先在 设置 → QQ Bot 里绑定一个 QQ 人设。',
+        }
       }
     }
+    const mode = ['favorite', 'qq', 'both'].includes(config.deliveryMode)
+      ? config.deliveryMode
+      : 'favorite'
+    const doFavorite = mode !== 'qq'
+    const doQQ = mode !== 'favorite'
     const cfg = {
       ...config,
+      deliveryMode: mode,
       count: count === null || count === undefined ? config.count : clampInt(count, 1, 10, config.count),
     }
     const controller = new AbortController()
@@ -550,6 +814,11 @@ export function apply(ctx) {
       subtitleVideos: 0,
       model: '',
       folder: '',
+      delivery: mode,
+      qqSent: 0,
+      qqTarget: doQQ ? cfg.qqTarget : '',
+      qqMessage: '',
+      qqError: '',
       note: '',
       error: '',
       shortlist: [],
@@ -572,7 +841,11 @@ export function apply(ctx) {
         if (currentPromise === promise) currentPromise = null
       },
     )
-    log(`开刷（${trigger}${dryRun ? '，试刷' : ''}）：扫 ${cfg.scan} 条，最多收藏 ${cfg.count} 条`)
+    log(
+      `开刷（${trigger}${dryRun ? '，试刷' : ''}，${deliveryLabel(mode)}）：扫 ${cfg.scan} 条，最多挑 ${cfg.count} 条${
+        doFavorite ? `，收藏到「${cfg.folderName}」` : ''
+      }${doQQ ? `，推送 QQ（${cfg.qqTarget}）` : ''}`,
+    )
     return { ok: true, started: true, runId: run.id, dryRun: Boolean(dryRun), promise }
   }
 
@@ -744,6 +1017,23 @@ export function apply(ctx) {
         return
       }
 
+      if (req.method === 'GET' && path === `${API_PREFIX}/qq-targets`) {
+        const result = await listQQTargets()
+        sendJson(res, 200, { ok: true, message: result.message, tool: result.tool })
+        return
+      }
+
+      if (req.method === 'POST' && path === `${API_PREFIX}/qq-test`) {
+        const body = await readBody(req)
+        const result = await sendQQTest({
+          target: body?.target,
+          scope: body?.scope,
+          tool: body?.tool,
+        })
+        sendJson(res, 200, { ok: true, message: result.message, tool: result.tool })
+        return
+      }
+
       if (req.method === 'POST' && path === `${API_PREFIX}/run`) {
         const body = await readBody(req)
         const dryRun = Boolean(body?.dryRun)
@@ -797,7 +1087,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_status',
     description:
-      '查看「B站自主刷片」的状态：是否已登录 B站、模型是谁、目标收藏夹、最近一轮它点开了什么、收藏了什么。',
+      '查看「B站自主刷片」的状态：是否已登录 B站、模型是谁、投递方式、目标收藏夹、QQ 推送工具/目标、最近一轮它点开了什么、收藏/推送了什么。',
     parameters: { type: 'object', properties: {} },
     async execute() {
       const status = publicStatus()
@@ -807,6 +1097,7 @@ export function apply(ctx) {
         login: status.login,
         model: status.model,
         folder: status.folder,
+        qq: status.qq,
         running: status.running,
         lastRun: status.lastRun,
         config: status.config,
@@ -818,7 +1109,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_preview',
     description:
-      '让模型自己刷一轮 B站推荐流：凭它自己的品味点开一些视频、读字幕，再决定想收藏哪些，但先不写入收藏夹。返回它点开了什么、最后想收藏什么以及理由。',
+      '让模型自己刷一轮 B站推荐流：凭它自己的品味点开一些视频、读字幕，再决定想推荐哪些；只预览，不写入收藏夹、也不发送 QQ。返回它点开了什么、最后想收藏/推送什么以及理由。',
     timeoutMs: 240_000,
     parameters: {
       type: 'object',
@@ -841,13 +1132,13 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_run',
     description:
-      '让模型自己刷一轮 B站推荐流，按它自己的判断挑片，并把挑中的视频收藏到你设置的 B站收藏夹。需要先在设置页扫码登录。',
+      '让模型自己刷一轮 B站推荐流，按它自己的判断挑片，并按设置页里的投递方式处理：只收藏、只通过 QQ Bot 推送、或两者都要。收藏需要 B站登录；QQ 推送需要已安装并绑定 QQ Bot 的 qq_send 工具和目标。',
     parameters: {
       type: 'object',
       properties: {
         count: {
           type: 'number',
-          description: '这一轮最多收藏几条（1-10，默认用设置里的值）',
+          description: '这一轮最多挑几条（1-10，默认用设置里的值）',
         },
       },
     },
@@ -878,12 +1169,54 @@ export function apply(ctx) {
     },
   })
 
+  registerTool({
+    name: 'bili_fav_qq',
+    description:
+      'QQ 推送辅助：action=targets 只读列出当前 QQ 机器人认识的群/私聊目标（用来填推送目标）；action=test 向配置的 QQ 目标发送一条测试消息，验证「B站推荐 → QQ」链路。',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['targets', 'test'],
+          description: 'targets=只读列目标；test=发一条测试消息',
+        },
+        target: {
+          type: 'string',
+          description: 'test 用：覆盖配置里的 QQ 目标（群名 / openid / 好友昵称）',
+        },
+        scope: {
+          type: 'string',
+          enum: ['auto', 'group', 'c2c'],
+          description: '目标类型，默认 auto',
+        },
+      },
+    },
+    timeoutMs: 60_000,
+    async execute(args) {
+      if (args?.action === 'targets') {
+        const result = await listQQTargets()
+        return { ok: true, message: result.message, tool: result.tool }
+      }
+      const result = await sendQQTest({
+        target: args?.target,
+        scope: args?.scope,
+      })
+      return { ok: true, message: result.message, tool: result.tool }
+    },
+  })
+
   ctx.effect(() => {
     const timer = setInterval(() => {
       if (disposed || current) return
       try {
         config = loadConfig(home)
-        if (!config.autoRun.enabled || !api.loggedIn) return
+        if (!config.autoRun.enabled) return
+        const mode = ['favorite', 'qq', 'both'].includes(config.deliveryMode)
+          ? config.deliveryMode
+          : 'favorite'
+        if (mode !== 'qq' && !api.loggedIn) return
+        if (mode !== 'favorite' && !String(config.qqTarget || '').trim()) return
         const [targetHour, targetMinute] = config.autoRun.time.split(':').map(Number)
         if (!Number.isFinite(targetHour) || !Number.isFinite(targetMinute)) return
         const now = new Date()
