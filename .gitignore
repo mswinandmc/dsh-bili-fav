@@ -4,6 +4,7 @@ node_modules/
 .env.*
 *.log
 *.tmp
+.npmrc
 credentials.json
 state.json
 config.json

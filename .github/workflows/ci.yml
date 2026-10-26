@@ -1,0 +1,42 @@
+name: ci
+
+# Every push to main and every PR: release preflight plus the dependency-free
+# unit suite on the Node versions this plugin supports.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # No install step: the package has zero runtime and dev dependencies.
+      - name: release preflight
+        run: node scripts/check-manifest.mjs
+
+      - name: unit tests
+        run: npm test
+
+      - name: published file list
+        run: npm pack --dry-run

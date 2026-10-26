@@ -1,5 +1,7 @@
 # dsh-bili-fav ｜ B站自主刷片
 
+[![npm](https://img.shields.io/npm/v/dsh-bili-fav.svg)](https://www.npmjs.com/package/dsh-bili-fav)
+
 用你的哔哩哔哩账号刷推荐流，让模型**自己决定点开哪些视频、自己读字幕、按自己的品味挑片**，最后把挑中的视频收藏到你指定的自定义收藏夹（可以公开分享）。
 
 这是一个 DeepSeek Harness（DSH）设置页插件：装在 DSH 的 `web` profile 里，设置里会多出一页「B站自主刷片」。**纯 JavaScript，不需要 Python，不需要装任何运行时依赖。**
@@ -25,15 +27,21 @@
 
 ## 安装
 
-这个包本身就是一个 DSH bundle（`package.json` 里的 `dsh.bundle.patch` + `dsh.client`）。在 DSH 里安装本地目录：
+从 npm 安装（推荐）：
+
+```bash
+dsh plugin --profile web add dsh-bili-fav
+```
+
+本地开发目录：
 
 ```bash
 dsh plugin --profile web add /path/to/this/directory
 ```
 
-或者让 DSH 的插件管理器安装这个目录。装完重启一次 DSH，然后进 **设置 → B站自主刷片**。
+这个包本身就是一个 DSH bundle（`package.json` 里的 `dsh.bundle.patch` + `dsh.client`）。装完重启一次 DSH，然后进 **设置 → B站自主刷片**。
 
-> 如果你是让 AI 助手装：用插件管理器的 `install_bundle`，target 指向本目录；装完用 `Cordis Inspect` 的 `Slots.listSubTree` 确认 `settings.section` 里多了一个 `bili-fav`。
+> 如果你是让 AI 助手装：从 npm 直接 `dsh plugin --profile web add dsh-bili-fav`；本地开发时用插件管理器的 `install_bundle`，target 指向本目录。装完用 `Cordis Inspect` 的 `Slots.listSubTree` 确认 `settings.section` 里多了一个 `bili-fav`。
 
 ## 第一次使用
 
@@ -72,6 +80,22 @@ dsh plugin --profile web add /path/to/this/directory
 - B站风控（-352 / -412）时这一轮会失败并给出提示，过一会儿再试。
 - 抖音式无限下滑没有做：一轮是「一批候选 + 模型自己点开若干条」。想刷更多就把「这一轮刷多少条候选」调大（最多 30）。
 - 自动运行按**插件所在机器**的本地时间，不跟随浏览器时区。
+
+## 发布（维护者）
+
+版本号写在 `package.json`。推一个同版本的 `v*` tag，GitHub Actions 的 `.github/workflows/release.yml` 会：
+
+1. 校验 tag 与 `package.json` 版本一致；
+2. 跑 release preflight 和单元测试；
+3. 用 **npm trusted publishing（OIDC，无 NPM_TOKEN）** 发布 `dsh-bili-fav`；
+4. 创建对应的 GitHub Release。
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+npm 侧只需一次性配置：npmjs.com → `dsh-bili-fav` → Settings → Trusted Publishers → GitHub Actions，填 `mswinandmc` / `dsh-bili-fav` / `release.yml`，允许 `npm publish`。首次发布前如果 npm 上还没有这个包，需要先用有权限的 npm 账号做一次首发布（或在 npm 上先创建包），之后 tag 发布就完全走 OIDC。
 
 ## 致谢
 
