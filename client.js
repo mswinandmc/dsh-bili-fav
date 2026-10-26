@@ -118,7 +118,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
 [data-bf-state][data-bf-tone=ok]{color:var(--dsw-alias-state-success-primary);}
 [data-bf-state][data-bf-tone=warn]{color:var(--dsw-alias-state-warn-primary);}
 [data-bf-state][data-bf-tone=error]{color:var(--dsw-alias-state-error-primary);}
-[data-bf-meta]{font-size:11px;line-height:18px;color:var(--dsw-alias-label-secondary);}
+[data-bf-meta]{font-size:11px;line-height:18px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere;}
 [data-bf-meta][data-bf-tone=error]{color:var(--dsw-alias-state-error-primary);}
 [data-bf-grid]{display:grid;grid-template-columns:repeat(auto-fill,minmax(214px,1fr));gap:10px;}
 [data-bf-card]{display:flex;flex-direction:column;overflow:hidden;border-radius:10px;text-decoration:none;
@@ -833,7 +833,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
               h(
                 'div',
                 { 'data-bf-note': '' },
-                '挑完后把「标题 + BV 链接 + 理由」发到这个目标。先用「读取 QQ 目标」找群名/openid；「测试发送」会真的发一条 QQ 消息。',
+                '挑完后把「标题 + BV 链接 + 理由」发到这个目标。QQ 官方 Bot 的 openid 很长（通常 32 位以上），可直接粘贴；「读取 QQ 目标」里的短 ID 只是展示用，不要照抄。用 openid 时把下方「目标类型」选成群聊或私聊。「测试发送」会真的发一条 QQ 消息。',
               ),
               h(
                 'div',
@@ -843,7 +843,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                   'data-bf-input': '',
                   value: form.qqTarget || '',
                   maxLength: 200,
-                  placeholder: '群名 / 群 openid / 好友昵称',
+                  placeholder: '群名 / 好友昵称 / 32+ 位 openid',
                   onChange: (event) => update({ qqTarget: event.target.value }),
                 }),
               ),
