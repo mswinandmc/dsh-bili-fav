@@ -1,0 +1,11 @@
+node_modules/
+.DSH/
+.env
+.env.*
+*.log
+*.tmp
+credentials.json
+state.json
+config.json
+coverage/
+dist/

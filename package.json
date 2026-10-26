@@ -1,0 +1,41 @@
+{
+  "name": "dsh-bili-fav",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "用你的 B站账号刷推荐流，让 AI 按兴趣挑片，并收藏到你自定义的收藏夹。",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "lib",
+    "vendor",
+    "locale",
+    "icon.svg",
+    "README.md",
+    "NOTICE.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    }
+  }
+}
