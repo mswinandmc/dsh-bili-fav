@@ -1,159 +1,175 @@
 /**
- * QQ channel adapter for dsh-bili-fav.
+ * QQ channel adapter for dsh-bili-fav, using Tencent's official QQ Bot API.
  *
- * This package contains no Bilibili logic. It only registers a delivery
- * channel through the core plugin's `biliFavChannels` service, using whichever
- * `qq_send__*` tool the installed QQ Bot plugin exposes.
+ * No dependency on the DSH QQ Bot plugin or its qq_send__* tools:
+ *   POST https://api.bot.qq.com/app/getAppAccessToken  { appId, clientSecret }
+ *   POST https://api.bot.qq.com/v2/groups/{group_openid}/messages
+ *   POST https://api.bot.qq.com/v2/users/{user_openid}/messages
+ *   Authorization: QQBot <access_token>
  */
 export const name = 'bili-fav-qq'
-export const inject = ['biliFavChannels', 'tools']
+export const inject = ['biliFavChannels']
 
-const QQ_TOOL = /^qq_send__[A-Za-z0-9_-]+$/
+const API_BASE = 'https://api.bot.qq.com'
+const TOKEN_URL = `${API_BASE}/app/getAppAccessToken`
+const CONTENT_LIMIT = 1800
 
-function qqTools(ctx) {
-  try {
-    return (ctx.tools?.schemas?.() || [])
-      .map((schema) => String(schema?.name || ''))
-      .filter((toolName) => QQ_TOOL.test(toolName))
-  } catch {
-    return []
+function trimmed(value, max = 500) {
+  return String(value || '').trim().slice(0, max)
+}
+
+function apiError(label, response, data) {
+  const code = data?.err_code ?? data?.code ?? response?.status ?? 'unknown'
+  const message = data?.message || data?.msg || ''
+  return new Error(`QQ 官方 API ${label}失败：${code}${message ? ` ${message}` : ''}`)
+}
+
+export function createQQChannel({ fetchImpl = fetch } = {}) {
+  const tokenCache = new Map()
+  let sequence = 0
+
+  async function getAccessToken(appId, appSecret, signal) {
+    const cacheKey = `${appId}\u0000${appSecret}`
+    const cached = tokenCache.get(cacheKey)
+    if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token
+
+    const response = await fetchImpl(TOKEN_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ appId, clientSecret: appSecret }),
+      signal,
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || data?.code || !data?.access_token) {
+      throw apiError('获取 access_token ', response, data)
+    }
+    const expiresIn = Number(data.expires_in) || 7200
+    tokenCache.set(cacheKey, {
+      token: data.access_token,
+      expiresAt: Date.now() + expiresIn * 1000,
+    })
+    return data.access_token
   }
-}
 
-function resolveTool(ctx, preferred) {
-  const tools = qqTools(ctx)
-  if (tools.length === 0) return ''
-  const wanted = String(preferred || '').trim()
-  if (wanted && tools.includes(wanted)) return wanted
-  return tools[0]
-}
+  async function send(payload, options = {}, { signal } = {}) {
+    const appId = trimmed(options.appId, 80)
+    const appSecret = trimmed(options.appSecret, 200)
+    const target = trimmed(options.target, 200)
+    const targetType =
+      options.targetType === 'group' || options.scope === 'group'
+        ? 'group'
+        : options.targetType === 'c2c' || options.scope === 'c2c'
+          ? 'c2c'
+          : ''
+    if (!appId) throw new Error('QQ 官方 API 缺少 AppID')
+    if (!appSecret) throw new Error('QQ 官方 API 缺少 ClientSecret')
+    if (!target) throw new Error('QQ 官方 API 缺少目标 openid')
+    if (!targetType) throw new Error('QQ 官方 API 目标类型必须是 group 或 c2c')
 
-function toolErrorText(result, name) {
-  const content = Array.isArray(result?.content) ? result.content : []
-  const text = content
-    .filter((item) => item?.type === 'text')
-    .map((item) => item.text)
-    .join('\n')
-  return text || `${name} 执行失败`
-}
+    const content = String(payload?.text || '').trim().slice(0, CONTENT_LIMIT)
+    if (!content) throw new Error('QQ 官方 API 没有可发送的文本')
+    const token = await getAccessToken(appId, appSecret, signal)
+    const path =
+      targetType === 'group'
+        ? `/v2/groups/${encodeURIComponent(target)}/messages`
+        : `/v2/users/${encodeURIComponent(target)}/messages`
+    const body = { msg_type: 0, content }
+    const msgId = trimmed(options.msgId, 200)
+    if (msgId) {
+      sequence = (sequence + 1) % 1_000_000_000
+      body.msg_id = msgId
+      body.msg_seq = sequence || 1
+    }
 
-async function callQQ(ctx, args, { tool, signal } = {}) {
-  const toolName = resolveTool(ctx, tool)
-  if (!toolName) {
-    throw new Error('没有检测到 qq_send 工具；请先在 设置 → QQ Bot 里绑定一个 QQ 人设')
-  }
-  if (!ctx.tools || typeof ctx.tools.execute !== 'function') {
-    throw new Error('宿主没有提供 tools 服务')
-  }
-  const result = await ctx.tools.execute({
-    callId: `bili-fav-qq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    name: toolName,
-    arguments: args,
-    signal: signal ?? AbortSignal.timeout(60_000),
-  })
-  if (result?.isError) throw new Error(toolErrorText(result, toolName))
-  const value = result?.value
-  if (value && typeof value === 'object' && value.ok === false) {
-    throw new Error(value.msg || `${toolName} 返回失败`)
-  }
-  const message =
-    value && typeof value === 'object'
-      ? String(value.msg || '')
-      : typeof value === 'string'
-        ? value
-        : ''
-  return { ok: true, message: message || '已发送', value, tool: toolName }
-}
-
-function scopeOf(options) {
-  const scope = String(options?.scope || 'auto')
-  return ['group', 'c2c'].includes(scope) ? scope : ''
-}
-
-function targetOf(options) {
-  return String(options?.target || '').trim()
-}
-
-const channel = (ctx) => ({
-  id: 'qq',
-  label: 'QQ Bot',
-  description: '通过当前 QQ Bot 插件注册的 qq_send__* 工具发送推荐。',
-  order: 10,
-  fields: [
-    {
-      key: 'target',
-      label: '推送到',
-      type: 'text',
-      required: true,
-      placeholder: '群名 / 好友昵称 / 32+ 位 openid',
-      help: 'QQ 官方 Bot 的 openid 很长（通常 32 位以上），可直接粘贴；「读取目标」里的短 ID 只是展示用，不要照抄。',
-    },
-    {
-      key: 'scope',
-      label: '目标类型',
-      type: 'select',
-      default: 'auto',
-      options: [
-        { value: 'auto', label: '自动识别' },
-        { value: 'group', label: '群聊' },
-        { value: 'c2c', label: '私聊' },
-      ],
-      help: '用 openid 发送时建议明确选群聊/私聊；按群名/昵称发送可以留自动。',
-    },
-    {
-      key: 'tool',
-      label: 'QQ 发送工具',
-      type: 'text',
-      placeholder: 'qq_send__standard',
-      help: '留空自动选第一个 qq_send__*；有多个 QQ 人设时填完整工具名。',
-    },
-  ],
-  available: () => qqTools(ctx).length > 0,
-  async send(payload, options, { signal } = {}) {
-    const target = targetOf(options)
-    if (!target) throw new Error('QQ 渠道还没有填「推送到」')
-    const scope = scopeOf(options)
-    const result = await callQQ(
-      ctx,
-      {
-        action: 'send',
-        target,
-        ...(scope ? { scope } : {}),
-        text: String(payload?.text || ''),
+    const response = await fetchImpl(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        authorization: `QQBot ${token}`,
       },
-      { tool: options?.tool, signal },
-    )
-    return { ok: true, message: result.message }
-  },
-  async listTargets(options, { signal } = {}) {
-    const result = await callQQ(ctx, { action: 'list' }, { tool: options?.tool, signal })
-    return { ok: true, message: result.message }
-  },
-  async test(options, { signal } = {}) {
-    const target = targetOf(options)
-    if (!target) throw new Error('请先填 QQ 目标，再测试发送')
-    const scope = scopeOf(options)
-    const result = await callQQ(
-      ctx,
+      body: JSON.stringify(body),
+      signal,
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok || data?.err_code || data?.code) {
+      throw apiError('发送', response, data)
+    }
+    return {
+      ok: true,
+      message: `已发送到${targetType === 'group' ? '群聊' : '私聊'}（QQ 官方 API）`,
+    }
+  }
+
+  return {
+    id: 'qq',
+    label: 'QQ Bot（官方 API）',
+    description: '直接用腾讯 QQ 官方 Bot API 发送，不依赖 QQ Bot 插件。',
+    order: 10,
+    fields: [
       {
-        action: 'send',
-        target,
-        ...(scope ? { scope } : {}),
-        text: [
-          '🐟 大肥鱼推荐：QQ 渠道联调成功',
-          new Date().toLocaleString('zh-CN'),
-          '收到这条消息，就说明「B站自主刷片 → 第三方渠道」链路通了。',
-        ].join('\n'),
+        key: 'appId',
+        label: 'AppID',
+        type: 'text',
+        required: true,
+        placeholder: 'QQ 开放平台机器人的 AppID',
       },
-      { tool: options?.tool, signal },
-    )
-    return { ok: true, message: result.message }
-  },
-})
+      {
+        key: 'appSecret',
+        label: 'ClientSecret',
+        type: 'text',
+        required: true,
+        placeholder: 'QQ 开放平台机器人的 ClientSecret',
+        help: '只保存在本机 config.json（0600）；不要发到群聊或日志里。',
+      },
+      {
+        key: 'target',
+        label: '目标 openid',
+        type: 'text',
+        required: true,
+        placeholder: '群 group_openid 或用户 user_openid',
+        help: '官方 Bot 的 openid 很长（32+ 位），可直接粘贴。',
+      },
+      {
+        key: 'targetType',
+        label: '目标类型',
+        type: 'select',
+        required: true,
+        default: 'c2c',
+        options: [
+          { value: 'c2c', label: '单聊（user_openid）' },
+          { value: 'group', label: '群聊（group_openid）' },
+        ],
+      },
+      {
+        key: 'msgId',
+        label: '被动回复 msg_id（可选）',
+        type: 'text',
+        placeholder: '不填 = 主动消息',
+        help: '来自最近一条入站事件的 d.id；群聊 5 分钟、单聊 60 分钟内有效。不填走主动消息，受官方频控/权限限制。',
+      },
+    ],
+    available: () => true,
+    send,
+    async test(options, { signal } = {}) {
+      await send(
+        {
+          text: [
+            '🐟 大肥鱼推荐：QQ 官方 API 联调成功',
+            new Date().toLocaleString('zh-CN'),
+            '收到这条消息，就说明「B站自主刷片 → 腾讯 QQ 官方 Bot」链路通了。',
+          ].join('\n'),
+        },
+        options,
+        { signal },
+      )
+      return { ok: true, message: 'QQ 官方 API 测试成功' }
+    },
+  }
+}
 
 export function apply(ctx) {
   ctx.effect(
-    () => ctx.biliFavChannels.register(channel(ctx)),
-    'bili-fav-qq: QQ channel',
+    () => ctx.biliFavChannels.register(createQQChannel()),
+    'bili-fav-qq: official QQ channel',
   )
 }

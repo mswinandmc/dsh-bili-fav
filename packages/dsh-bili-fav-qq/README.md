@@ -1,8 +1,8 @@
 # dsh-bili-fav-qq
 
-`dsh-bili-fav` 的 **QQ 渠道适配器**，独立安装、独立卸载。
+`dsh-bili-fav` 的 **QQ 渠道适配器**，直接调用**腾讯 QQ 官方 Bot API**。
 
-它不包含任何 B站逻辑，只做一件事：通过核心插件暴露的 `biliFavChannels` 服务注册一个 `qq` 渠道，然后把推荐文本交给当前 QQ Bot 插件注册的 `qq_send__*` 工具。
+它不依赖 DSH 的 QQ Bot 插件，也不使用 `qq_send__*` 工具；只要在 QQ 开放平台创建机器人，填 AppID / ClientSecret / 目标 openid 即可。
 
 ## 安装
 
@@ -12,30 +12,41 @@
 dsh plugin add /path/to/dsh-bili-fav/packages/dsh-bili-fav-qq
 ```
 
-或在 Web 设置 → 插件里安装本地目录。安装后会多一个 bundle `dsh-bili-fav-qq`；启用后，核心的设置页「投递方式 → 只第三方渠道 / 都要」里会出现 **QQ Bot**。
+安装并启用后，核心设置页「投递方式 → 只第三方渠道 / 都要」里会出现 **QQ Bot（官方 API）**。
 
 ## 配置
 
-核心设置页会自动渲染本适配器声明的字段：
-
 | 字段 | 说明 |
 |---|---|
-| 推送到 | 群名 / 好友昵称 / openid；官方 Bot 的 openid 很长（32+ 位）可直接粘贴 |
-| 目标类型 | 自动 / 群聊 / 私聊；用 openid 时建议明确选 |
-| QQ 发送工具 | 留空自动选第一个 `qq_send__*`；多个人设时填完整名 |
+| AppID | QQ 开放平台机器人的 AppID |
+| ClientSecret | QQ 开放平台机器人的 ClientSecret；只保存在本机 `config.json`（0600） |
+| 目标 openid | 群的 `group_openid` 或用户的 `user_openid`，官方 Bot 的 openid 通常 32 位以上 |
+| 目标类型 | 单聊 `c2c` / 群聊 `group` |
+| 被动回复 msg_id | 可选；来自最近一条入站事件的 `d.id`，群聊 5 分钟、单聊 60 分钟内有效。不填走主动消息 |
 
-先点「读取目标」看机器人认识的群/私聊，再点「测试发送」联调。
+点「测试发送」会走官方 API 真发一条消息；主动消息受官方频控/权限限制，失败原因会直接显示。
 
-## 依赖
+## 官方接口
 
-- `dsh-bili-fav`（核心服务 `biliFavChannels`）
-- 一个已启用、已绑定人设的 QQ Bot 插件，并注册了 `qq_send__*` 工具
+```text
+POST https://api.bot.qq.com/app/getAppAccessToken
+  { "appId": "...", "clientSecret": "..." }
 
-两个依赖都不写进 `peerDependencies`：适配器通过 Cordis `inject` 等待服务/工具，缺任何一个时保持未激活，不会让核心启动失败。
+POST https://api.bot.qq.com/v2/groups/{group_openid}/messages
+POST https://api.bot.qq.com/v2/users/{user_openid}/messages
+  Authorization: QQBot <access_token>
+  { "msg_type": 0, "content": "...", "msg_id": "...", "msg_seq": 1 }
+```
+
+- access_token 有效期约 7200 秒；适配器会缓存并在过期前 60 秒刷新。
+- 群聊被动回复 5 分钟 / 5 次；单聊被动回复 60 分钟 / 4 次。
+- 主动消息受 Bot/单关系频控与权限限制；出错会原样显示官方 `err_code` / `message`。
+
+参考：[获取访问凭证](https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/access-token.html)、[发送群聊消息](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_messages.post.html)、[发送单聊消息](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_users_user_openid_messages.post.html)。
 
 ## 第三方渠道
 
-本包就是渠道 API 的参考实现。任意插件可以：
+本包仍然是 `biliFavChannels` 渠道 API 的参考实现：
 
 ```js
 export const inject = ['biliFavChannels']
@@ -47,7 +58,7 @@ export function apply(ctx) {
     fields: [{ key: 'url', label: 'URL', type: 'text', required: true }],
     async send(payload, options) {
       await fetch(options.url, { method: 'POST', body: payload.text })
-      return { ok: true, message: '已 POST' }
+      return { ok: true, message: 'sent' }
     },
   }))
 }

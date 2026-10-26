@@ -1,7 +1,7 @@
 {
   "name": "dsh-bili-fav-qq",
-  "version": "0.1.0",
-  "description": "QQ Bot channel adapter for dsh-bili-fav",
+  "version": "0.2.0",
+  "description": "Tencent QQ official Bot API channel adapter for dsh-bili-fav",
   "type": "module",
   "main": "index.js",
   "license": "MIT",
@@ -45,6 +45,8 @@
     "dsh-bundle",
     "bilibili",
     "qqbot",
+    "tencent",
+    "official-api",
     "channel"
   ]
 }
