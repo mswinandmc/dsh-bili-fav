@@ -1,6 +1,6 @@
 {
   "name": "dsh-bili-qq",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "DSH 插件：B站自主刷片 + QQ 官方 Bot。agent 自己刷推荐、读字幕挑片写理由，并通过腾讯 QQ 官方 API 私聊推送；QQ 回复会转回同一会话。",
   "type": "module",
   "main": "index.js",
