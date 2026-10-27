@@ -1,6 +1,6 @@
 {
   "name": "dsh-bili-qq",
-  "version": "1.0.0-pre1",
+  "version": "1.0.0-rc1",
   "description": "B站自主刷片 + 今天的鱼：agent 在 DSH 会话里刷推荐、写理由，并通过内置腾讯 QQ 官方 API 推送。",
   "type": "module",
   "main": "index.js",

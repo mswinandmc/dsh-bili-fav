@@ -68,15 +68,14 @@ jobs:
       - name: unit tests
         run: npm test
 
-      # beta tags publish under `beta`; rc tags are explicitly promoted to
-      # `latest` (owner decision for 0.2.0-rc1); pre tags go to `next`;
+      # beta tags publish under `beta`; rc and pre tags go to `next`;
       # stable tags use `latest`.
       - name: choose the npm dist-tag
         id: channel
         shell: bash
         run: |
           case "${GITHUB_REF_NAME#v}" in
-            *-rc*)  echo "dist=latest" >> "$GITHUB_OUTPUT"; echo "pre=true"  >> "$GITHUB_OUTPUT" ;;
+            *-rc*)  echo "dist=next"   >> "$GITHUB_OUTPUT"; echo "pre=true"  >> "$GITHUB_OUTPUT" ;;
             *-pre*) echo "dist=next"   >> "$GITHUB_OUTPUT"; echo "pre=true"  >> "$GITHUB_OUTPUT" ;;
             *-*)    echo "dist=beta"   >> "$GITHUB_OUTPUT"; echo "pre=true"  >> "$GITHUB_OUTPUT" ;;
             *)      echo "dist=latest" >> "$GITHUB_OUTPUT"; echo "pre=false" >> "$GITHUB_OUTPUT" ;;
