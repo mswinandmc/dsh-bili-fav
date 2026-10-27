@@ -16,7 +16,7 @@ import { BiliApi, BiliError } from './lib/bili.js'
 import { createChannelRegistry } from './lib/channels.js'
 import { createWebhookChannel } from './lib/webhook.js'
 import { formatChatReply } from './lib/chat.js'
-import { openRecommendationRoom } from './lib/session-room.js'
+import { createSessionChannel } from './lib/session-channel.js'
 import { curate } from './lib/judge.js'
 import { qrSvg } from './lib/qr.js'
 import {
@@ -53,7 +53,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.2.0-beta.11'
+let VERSION = '0.2.0-beta.12'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -171,6 +171,11 @@ export function apply(ctx) {
   const channels = createChannelRegistry()
   channels.dataDir = home
   try {
+    channels.register(createSessionChannel({ ctx, home, log }))
+  } catch (error) {
+    log(`注册内置 DSH 会话渠道失败：${errorMessage(error)}`)
+  }
+  try {
     channels.register(createWebhookChannel())
   } catch (error) {
     log(`注册内置 Webhook 渠道失败：${errorMessage(error)}`)
@@ -229,6 +234,7 @@ export function apply(ctx) {
   }
 
   function deliveryLabel(mode) {
+    if (mode === 'session') return '只 DSH 会话'
     if (mode === 'channel') return '只 QQ'
     if (mode === 'both') return '收藏 + QQ'
     return '只收藏'
@@ -253,30 +259,9 @@ export function apply(ctx) {
       if (pick.reason) lines.push(`   理由：${oneLine(pick.reason, 180)}`)
       lines.push('')
     })
-    if (mode !== 'channel' && favoriteLink) lines.push(`收藏夹：${favoriteLink}`)
+    if (mode !== 'channel' && mode !== 'session' && favoriteLink) lines.push(`收藏夹：${favoriteLink}`)
     lines.push('想换一批，或者问某条的理由，直接回我就行。')
     return lines.join('\n').trim().slice(0, 3800)
-  }
-
-  function recommendationRoomTask(run, folder) {
-    return [
-      '【B站推荐会话】',
-      '这是刚刚推送给用户的 B站推荐（标题、链接、理由）：',
-      '',
-      formatDeliveryText({ picks: run.picks || [], folder, mode: run.delivery }),
-      '',
-      '请用你自己的话和用户聊聊这几条：你最想先看哪条、为什么，邀请用户追问或换一批。不要提及这条说明，不要重新刷/收藏/推送。',
-    ].join('\n')
-  }
-
-  function recommendationRoomTitle(run = null) {
-    const at = run?.finishedAt || run?.startedAt ? new Date(run.finishedAt || run.startedAt) : new Date()
-    return `B站推荐 · ${at.toLocaleString('zh-CN', {
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })}`
   }
 
   async function deliverToChannel({ cfg, run, picks, folder, signal }) {
@@ -363,8 +348,8 @@ export function apply(ctx) {
       history: state.runs.slice(0, 8).map(summarizeRun),
       logTail: readTail(files.log, 1400),
       note: !api.loggedIn
-        ? mode === 'channel'
-          ? 'QQ 模式不需要 B站登录：可以用游客推荐流；个性化推荐和字幕仍需要登录。'
+        ? mode === 'channel' || mode === 'session'
+          ? `${mode === 'session' ? 'DSH 会话' : 'QQ'}模式不需要 B站登录：可以用游客推荐流；个性化推荐和字幕仍需要登录。`
           : '未登录时可以「试刷」：用游客推荐流让模型挑一遍，不会写入收藏夹。'
         : mode !== 'favorite' && list.length === 0
           ? '还没有可用的 QQ 投递渠道；安装 dsh-bili-fav-qq 后再刷新。'
@@ -578,10 +563,10 @@ export function apply(ctx) {
         }
       })
 
-      const mode = ['favorite', 'channel', 'both'].includes(cfg.deliveryMode)
+      const mode = ['favorite', 'channel', 'both', 'session'].includes(cfg.deliveryMode)
         ? cfg.deliveryMode
-        : 'favorite'
-      const doFavorite = mode !== 'channel'
+        : 'session'
+      const doFavorite = mode === 'favorite' || mode === 'both'
       const doChannel = mode !== 'favorite'
       run.delivery = mode
       run.channelId = doChannel ? cfg.channelId : ''
@@ -667,20 +652,6 @@ export function apply(ctx) {
         }
       }
 
-      if (!run.dryRun && run.picks.length > 0 && !['tool', 'chat'].includes(run.trigger)) {
-        try {
-          await openRecommendationRoom({
-            ctx,
-            parentSessionId: state.lastSessionId,
-            title: recommendationRoomTitle(run),
-            task: recommendationRoomTask(run, folder),
-            log,
-          })
-        } catch (error) {
-          log(`创建 DSH 推荐会话失败：${errorMessage(error)}`)
-        }
-      }
-
       const favoriteOk = saved > 0
       if (mode === 'favorite') {
         if (!favoriteOk) {
@@ -695,7 +666,7 @@ export function apply(ctx) {
         })
       }
 
-      if (mode === 'channel') {
+      if (mode === 'channel' || mode === 'session') {
         if (!channelOk) {
           for (const pick of run.picks) {
             pick.status = 'failed'
@@ -762,13 +733,14 @@ export function apply(ctx) {
     } catch (error) {
       log(`开始前读取配置失败：${errorMessage(error)}`)
     }
-    const mode = ['favorite', 'channel', 'both'].includes(config.deliveryMode)
+    const mode = ['favorite', 'channel', 'both', 'session'].includes(config.deliveryMode)
       ? config.deliveryMode
-      : 'favorite'
-    const doFavorite = mode !== 'channel'
+      : 'session'
+    const doFavorite = mode === 'favorite' || mode === 'both'
     const doChannel = mode !== 'favorite'
+    const effectiveChannelId = doChannel ? (mode === 'session' ? 'session' : config.channelId) : ''
     const channelDescriptor = doChannel
-      ? channelList().find((item) => item.id === config.channelId) || null
+      ? channelList().find((item) => item.id === effectiveChannelId) || null
       : null
     if (!dryRun) {
       if (doFavorite && !api.loggedIn) {
@@ -780,20 +752,20 @@ export function apply(ctx) {
         }
       }
       if (doChannel) {
-        if (!String(config.channelId || '').trim()) {
+        if (!String(effectiveChannelId || '').trim()) {
           return {
             ok: false,
             started: false,
             reason: 'no-channel',
-            message: '请先在偏好里选择一个 QQ 投递渠道。',
+            message: '请先在偏好里选择一个投递渠道。',
           }
         }
-        if (!channels.get(config.channelId) || !channelDescriptor) {
+        if (!channels.get(effectiveChannelId) || !channelDescriptor) {
           return {
             ok: false,
             started: false,
             reason: 'unknown-channel',
-            message: `渠道「${config.channelId}」没有注册；请安装/启用对应的渠道插件后刷新。`,
+            message: `渠道「${effectiveChannelId}」没有注册；请刷新或检查插件。`,
           }
         }
         if (channelDescriptor.available === false) {
@@ -804,7 +776,7 @@ export function apply(ctx) {
             message: `渠道「${channelDescriptor.label}」当前不可用；检查它依赖的工具/服务是否在线。`,
           }
         }
-        const options = config.channelOptions?.[config.channelId] || {}
+        const options = config.channelOptions?.[effectiveChannelId] || {}
         const missing = (channelDescriptor.fields || [])
           .filter((field) => field.required && !String(options[field.key] ?? field.default ?? '').trim())
           .map((field) => field.label || field.key)
@@ -821,6 +793,7 @@ export function apply(ctx) {
     const cfg = {
       ...config,
       deliveryMode: mode,
+      channelId: effectiveChannelId,
       guidance:
         guidance === null || guidance === undefined
           ? config.guidance
@@ -1117,38 +1090,8 @@ export function apply(ctx) {
     },
   }
 
-  const captureSession = (exec) => {
-    const rawId = String(exec?.agent?.id ?? exec?.sessionId ?? '').trim()
-    if (!rawId) return
-    let targetId = rawId
-    try {
-      const sessions = ctx.get('sessions')
-      const parent = sessions?.get?.(rawId)?.header?.parentSession
-      if (parent) targetId = String(parent)
-    } catch {
-      /* sessions is optional */
-    }
-    if (!targetId) return
-    const next = targetId.slice(0, 120)
-    if (state.lastSessionId === next) return
-    state.lastSessionId = next
-    try {
-      saveState(home, state)
-    } catch (error) {
-      log(`记录 DSH 会话失败：${errorMessage(error)}`)
-    }
-  }
-
   const registerTool = (definition) => {
-    const execute = definition.execute
-    const wrapped = {
-      ...definition,
-      async execute(args, exec) {
-        captureSession(exec)
-        return execute.call(definition, args, exec)
-      },
-    }
-    ctx.effect(() => ctx.tools.register({ ...wrapped, output: toolOutput }), `bili-fav: ${definition.name}`)
+    ctx.effect(() => ctx.tools.register({ ...definition, output: toolOutput }), `bili-fav: ${definition.name}`)
   }
 
   registerTool({
@@ -1236,29 +1179,6 @@ export function apply(ctx) {
       } finally {
         exec?.signal?.removeEventListener?.('abort', onAbort)
       }
-    },
-  })
-
-  registerTool({
-    name: 'bili_fav_open_room',
-    description:
-      '为最近一轮推荐新建一个独立的 DSH 会话，并把“用你自己的话和用户聊这轮推荐/理由”作为初始任务交给模型。用户说“开个新会话聊刚才的推荐/我们到新会话里聊”时用；不会推送 QQ，也不会在当前会话注入推荐原文。',
-    parameters: { type: 'object', properties: {} },
-    timeoutMs: 30_000,
-    async execute() {
-      const run = (state.runs || []).find(
-        (item) => !item.dryRun && Array.isArray(item.picks) && item.picks.length > 0,
-      )
-      if (!run) return { ok: false, error: '最近没有可聊的推荐' }
-      const room = await openRecommendationRoom({
-        ctx,
-        parentSessionId: state.lastSessionId,
-        title: recommendationRoomTitle(run),
-        task: recommendationRoomTask(run, null),
-        log,
-      })
-      if (!room) return { ok: false, error: '宿主没有可用的 sessionController.create()' }
-      return { ok: true, sessionId: room.sessionId, title: room.title, prompted: room.prompted }
     },
   })
 
@@ -1377,12 +1297,13 @@ export function apply(ctx) {
       try {
         config = loadConfig(home)
         if (!config.autoRun.enabled) return
-        const mode = ['favorite', 'channel', 'both'].includes(config.deliveryMode)
+        const mode = ['favorite', 'channel', 'both', 'session'].includes(config.deliveryMode)
           ? config.deliveryMode
-          : 'favorite'
-        if (mode !== 'channel' && !api.loggedIn) return
+          : 'session'
+        if (mode !== 'channel' && mode !== 'session' && !api.loggedIn) return
         if (mode !== 'favorite') {
-          const descriptor = channelList().find((item) => item.id === config.channelId)
+          const id = mode === 'session' ? 'session' : config.channelId
+          const descriptor = channelList().find((item) => item.id === id)
           if (!descriptor || descriptor.available === false) return
         }
         const [targetHour, targetMinute] = config.autoRun.time.split(':').map(Number)
