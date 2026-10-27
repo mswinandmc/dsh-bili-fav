@@ -53,9 +53,9 @@ dsh plugin --profile web add /path/to/this/directory
 ## 第一次使用
 
 1. **登录 B站**：设置 → B站自主刷片 → 扫码登录。凭证落在 `<DSH_HOME>/bili-fav/credentials.json`（0600）。
-2. **配置 QQ**：在「QQ 渠道」里填腾讯 QQ 开放平台机器人的 **AppID / ClientSecret**；目标 openid 可以手动填，也可以点「读取目标」让官方事件网关自动收集；留空用上次成功目标。
+2. **配置 QQ**：在「QQ 渠道」里填腾讯 QQ 开放平台机器人的 **AppID / ClientSecret**；私聊 user_openid 可以手动填，也可以点「读取目标」让官方事件网关自动收集；留空用上次成功的私聊目标。
 3. **调回复风格**：在「回复提示词」里写 agent 的 QQ 语气；留空使用默认的 QQ 聊天语气。
-4. **QQ 回消息**：保持「把 QQ 收到的消息转到 DSH 会话」开启，用户在 QQ 回复时 agent 会接着回。
+4. **QQ 回消息**：保持「把 QQ 收到的消息转到 DSH 会话」开启，用户在 QQ 私聊回复时 agent 会接着回。
 5. **试运行**：点「试刷（不投递）」先看它挑什么；满意后点「让 agent 刷一轮」。
 6. **自动运行**：在偏好里打开「每天自动刷一轮」，选本机时间；到点会把任务交给会话。
 
@@ -64,7 +64,7 @@ dsh plugin --profile web add /path/to/this/directory
 - **B站账号**：扫码登录/退出；显示当前登录用户。
 - **它怎么挑**：给模型的一句参考、候选数量、深读数量、最多挑几条。
 - **回复提示词**：agent 写 QQ 文案和回复 QQ 消息时的风格/格式，包括对用户的称呼和自称；留空使用默认的 QQ 聊天语气。
-- **QQ 渠道**：AppID、ClientSecret、目标、手动 openid、目标类型、msg_id，以及「把 QQ 收到的消息转到 DSH 会话」。
+- **QQ 渠道**：AppID、ClientSecret、私聊目标、手动 user_openid、msg_id，以及「把 QQ 收到的消息转到 DSH 会话」。
 - **自主唤醒**：作息窗口 + 每个窗口醒几次 + 最小唤醒间隔；到点用 sessionController.prompt 叫醒当前会话。
 - **运行/历史**：试刷、让 agent 刷一轮、停止、每轮记录和清单复制。
 
@@ -85,15 +85,15 @@ dsh plugin --profile web add /path/to/this/directory
 
 ## 腾讯 QQ 官方 Bot
 
-内置渠道直接调用腾讯官方 API，不依赖 QQ Bot 插件：
+内置渠道直接调用腾讯官方 API，不依赖 QQ Bot 插件。**QQ 推送仅限私聊（c2c），不会发到群聊**：
 
-- 发送：`POST https://api.bot.qq.com/v2/users/{user_openid}/messages` 或 `/v2/groups/{group_openid}/messages`
+- 发送：`POST https://api.bot.qq.com/v2/users/{user_openid}/messages`
 - 鉴权：`Authorization: QQBot <access_token>`
-- 目标：官方事件网关收集的私聊/群，或手动 openid；留空回退上次成功目标
-- 被动回复：有最近入站 `msg_id` 时自动带上，群聊/私聊窗口由腾讯限制
-- 入站：网关收到 `MESSAGE_CREATE` 后转发到当前 DSH 会话；可在设置里关掉
+- 目标：只收集私聊目标，或手动填私聊 user_openid；留空回退最近成功的私聊目标；旧配置里的群聊目标会被忽略
+- 被动回复：有最近入站私聊 `msg_id` 时自动带上，私聊窗口由腾讯限制（约 60 分钟）
+- 入站：网关收到私聊 `MESSAGE_CREATE` 后转发到当前 DSH 会话；群消息忽略；可在设置里关掉
 
-QQ 主动消息的配额、权限、目标 openid 都由腾讯官方 Bot 平台决定。`fetch failed` / 401 / 403 先查网络、AppID/ClientSecret、机器人权限和目标。
+QQ 主动消息的配额、权限、目标 openid 都由腾讯官方 Bot 平台决定。`fetch failed` / 401 / 403 先查网络、AppID/ClientSecret、机器人权限和私聊目标。
 
 ## 自主唤醒（生物钟）
 
@@ -135,7 +135,7 @@ QQ 主动消息的配额、权限、目标 openid 都由腾讯官方 Bot 平台�
 要求 Node.js >= 22，零运行时/开发依赖。
 
 ```bash
-npm test            # 34 个单元测试
+npm test            # 37 个单元测试
 npm run check       # release preflight + 测试
 npm pack --dry-run  # 查看发布文件
 ```
@@ -165,6 +165,7 @@ git push origin v0.2.0-rc1
 - B站字幕接口未登录/未开启 AI 字幕时可能为空，此时只能按标题/简介/标签判断。
 - B站风控（-352 / -412）会让这一轮失败，过一会儿再试。
 - 一轮是“一批候选 + agent 自己点开若干条”，不是无限下滑；想多看就把候选数调大（最多 30）。
+- QQ 推送仅限私聊；群聊目标会被忽略并回退到最近的私聊目标，群消息不会转进会话。
 - QQ 官方网关受网络和腾讯 API 影响；`fetch failed` 不等于渠道没注册。
 - 自动运行按插件机器本地时间，不跟随浏览器时区。
 

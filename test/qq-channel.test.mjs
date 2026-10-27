@@ -1,5 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createQQChannel } from '../lib/qq-channel.js'
 
 function jsonResponse(body, status = 200) {
@@ -52,14 +55,14 @@ test('gets a token and sends a c2c text message', async () => {
   })
 })
 
-test('sends group messages, reuses the token, and includes passive msg_id', async () => {
+test('reuses the token and includes passive msg_id for private messages', async () => {
   const { fetchImpl, calls } = makeFetch()
   const channel = createQQChannel({ fetchImpl })
   const options = {
     appId: 'app-1',
     appSecret: 'secret-1',
-    target: 'group-openid',
-    targetType: 'group',
+    target: 'user-openid',
+    targetType: 'c2c',
     msgId: 'ROBOT1.0_inbound',
   }
   await channel.send({ text: 'first' }, options)
@@ -67,12 +70,65 @@ test('sends group messages, reuses the token, and includes passive msg_id', asyn
   assert.equal(calls.filter((call) => call.url.endsWith('/getAppAccessToken')).length, 1)
   const sends = calls.filter((call) => !call.url.endsWith('/getAppAccessToken'))
   assert.equal(sends.length, 2)
-  assert.equal(sends[0].url, 'https://api.bot.qq.com/v2/groups/group-openid/messages')
+  assert.ok(sends.every((call) => call.url.includes('/v2/users/user-openid/messages')))
   const first = JSON.parse(sends[0].init.body)
   const second = JSON.parse(sends[1].init.body)
   assert.equal(first.msg_id, 'ROBOT1.0_inbound')
   assert.equal(second.msg_id, 'ROBOT1.0_inbound')
   assert.notEqual(first.msg_seq, second.msg_seq)
+})
+
+test('a group target falls back to the last private target', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bili-fav-qq-'))
+  writeFileSync(
+    join(dir, 'qq-targets.json'),
+    JSON.stringify({
+      targets: [
+        { type: 'c2c', id: 'user1', label: 'Alice', lastAt: Date.now() },
+        { type: 'group', id: 'group1', label: '群', lastAt: Date.now() + 1 },
+      ],
+      lastTarget: { type: 'group', id: 'group1' },
+    }),
+  )
+  const { fetchImpl, calls } = makeFetch()
+  const channel = createQQChannel({ fetchImpl, dataDir: dir })
+  try {
+    const result = await channel.send(
+      { text: 'hello' },
+      {
+        appId: 'app-1',
+        appSecret: 'secret-1',
+        target: 'group|group1',
+        targetType: 'group',
+      },
+    )
+    assert.equal(result.message, '已发送到私聊（QQ 官方 API）')
+    const send = calls.find((call) => call.url.includes('/v2/users/'))
+    assert.ok(send)
+    assert.ok(!send.url.includes('/v2/groups/'))
+    assert.ok(send.url.includes('/v2/users/user1/messages'))
+  } finally {
+    channel.dispose()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('a manual group target is rejected', async () => {
+  const channel = createQQChannel({ fetchImpl: makeFetch().fetchImpl })
+  await assert.rejects(
+    () =>
+      channel.send(
+        { text: 'x' },
+        {
+          appId: 'a',
+          appSecret: 'b',
+          target: '__manual__',
+          targetManual: 'group-openid',
+          targetType: 'group',
+        },
+      ),
+    /仅限私聊/,
+  )
 })
 
 test('accepts the legacy scope field and sends a test message', async () => {
@@ -127,7 +183,7 @@ test('validates required configuration before calling the network', async () => 
   )
   await assert.rejects(
     () => channel.send({ text: 'x' }, { appId: 'a', appSecret: 'b' }),
-    /目标 openid/,
+    /私聊目标/,
   )
   await assert.rejects(
     () =>

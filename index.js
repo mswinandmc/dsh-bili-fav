@@ -198,7 +198,7 @@ export function apply(ctx) {
         if (!text) return
         const prompt = [
           '【QQ 消息】',
-          `来自：${message.type === 'group' ? '群聊' : '私聊'}${message.label ? `（${message.label}）` : ''}`,
+          `来自：私聊${message.label ? `（${message.label}）` : ''}`,
           text,
           '',
           '这是 QQ 里收到的消息。请调用 bili_fav_push，把回复内容作为 text 传入（channelId 用 qq）；不要只在 DSH 会话里回复。不要一次发一长串，具体风格按下面的回复要求。',
@@ -1350,7 +1350,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_push',
     description:
-      '把你在 DSH 会话里写好的内容通过 QQ 渠道发给用户（只发送，不收藏，不再套模板）。必须传 text；可以是推荐文案，也可以是普通 QQ 回复。runId 可选。到点自动任务、回复 QQ 消息或用户说“推给我/推到QQ”时用。',
+      '把你在 DSH 会话里写好的内容通过 QQ 渠道发给用户（仅私聊，只发送，不收藏，不再套模板）。必须传 text；可以是推荐文案，也可以是普通 QQ 回复。runId 可选。到点自动任务、回复 QQ 消息或用户说“推给我/推到QQ”时用。',
     parameters: {
       type: 'object',
       properties: {
@@ -1495,7 +1495,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_channels',
     description:
-      '查看已注册的 QQ 投递渠道；action=list 只读列出渠道和配置字段；action=targets 让当前渠道读取可用目标；action=test 让当前渠道发送一条测试消息。',
+      '查看已注册的 QQ 投递渠道（仅私聊）；action=list 只读列出渠道和配置字段；action=targets 让当前渠道读取可用目标；action=test 让当前渠道发送一条测试消息。',
     parameters: {
       type: 'object',
       properties: {

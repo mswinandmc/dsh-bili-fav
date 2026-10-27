@@ -76,7 +76,7 @@ async function waitFor(predicate, timeout = 1000) {
   }
 }
 
-test('official gateway events fill the target dropdown and persist', async () => {
+test('official gateway events fill the private target dropdown and persist', async () => {
   FakeWebSocket.reset()
   const { fetchImpl } = makeFetch()
   const dir = mkdtempSync(join(tmpdir(), 'bili-fav-qq-'))
@@ -123,23 +123,22 @@ test('official gateway events fill the target dropdown and persist', async () =>
     })
 
     const result = await pending
-    assert.deepEqual(incoming.map((message) => message.text), ['hello', 'group hello'])
+    assert.deepEqual(incoming.map((message) => message.text), ['hello'])
     assert.equal(incoming[0].type, 'c2c')
-    assert.equal(incoming[1].type, 'group')
-    assert.equal(result.targets.length, 2)
+    assert.equal(result.targets.length, 1)
     assert.deepEqual(
-      result.targets.map((target) => `${target.type}|${target.id}`).sort(),
-      ['c2c|user1', 'group|group1'],
+      result.targets.map((target) => `${target.type}|${target.id}`),
+      ['c2c|user1'],
     )
     const targetField = fields.find((field) => field.key === 'target')
     assert.ok(targetField.options.some((option) => option.value === 'c2c|user1'))
-    assert.ok(targetField.options.some((option) => option.value === 'group|group1'))
     assert.ok(targetField.options.some((option) => option.value === '__manual__'))
+    assert.ok(!targetField.options.some((option) => option.value.startsWith('group|')))
 
     const reloaded = createQQChannel({ fetchImpl, webSocketImpl: FakeWebSocket, dataDir: dir })
     const reloadedTargets = reloaded.fields.find((field) => field.key === 'target').options
     assert.ok(reloadedTargets.some((option) => option.value === 'c2c|user1'))
-    assert.ok(reloadedTargets.some((option) => option.value === 'group|group1'))
+    assert.ok(!reloadedTargets.some((option) => option.value.startsWith('group|')))
     reloaded.dispose()
   } finally {
     channel.dispose()

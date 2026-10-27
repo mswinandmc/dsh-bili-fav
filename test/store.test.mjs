@@ -42,7 +42,7 @@ test('clamps user values instead of trusting the form', () => {
     deliveryMode: 'nope',
     replyPrompt: 'x'.repeat(5000),
     channelId: 'x'.repeat(50),
-    channelOptions: { qq: { target: 'y'.repeat(600), scope: 'group' } },
+    channelOptions: { qq: { target: 'y'.repeat(600), scope: 'c2c' } },
     autoRun: { enabled: true, time: '25:99' },
   })
   assert.equal(config.scan, 30)
@@ -63,7 +63,7 @@ test('config round-trips through the plugin home', () => {
       folderName: '测试夹',
       deliveryMode: 'both',
       channelId: 'qq',
-      channelOptions: { qq: { target: '测试群', scope: 'group', tool: 'qq_send__test' } },
+      channelOptions: { qq: { target: '测试用户', scope: 'c2c', tool: 'qq_send__test' } },
       scan: 12,
       deepRead: 4,
       count: 2,
@@ -75,8 +75,8 @@ test('config round-trips through the plugin home', () => {
     assert.equal(loaded.folderName, '测试夹')
     assert.equal(loaded.deliveryMode, 'both')
     assert.equal(loaded.channelId, 'qq')
-    assert.equal(loaded.channelOptions.qq.target, '测试群')
-    assert.equal(loaded.channelOptions.qq.scope, 'group')
+    assert.equal(loaded.channelOptions.qq.target, '测试用户')
+    assert.equal(loaded.channelOptions.qq.scope, 'c2c')
     assert.equal(loaded.channelOptions.qq.tool, 'qq_send__test')
     assert.equal(loaded.autoRun.time, '23:59')
   } finally {
@@ -84,7 +84,7 @@ test('config round-trips through the plugin home', () => {
   }
 })
 
-test('legacy QQ config migrates to the generic channel fields', () => {
+test('legacy QQ group config migrates to private-only', () => {
   const config = sanitizeConfig({
     deliveryMode: 'qq',
     qqTarget: '旧群',
@@ -93,9 +93,30 @@ test('legacy QQ config migrates to the generic channel fields', () => {
   })
   assert.equal(config.deliveryMode, 'channel')
   assert.equal(config.channelId, 'qq')
-  assert.equal(config.channelOptions.qq.target, '旧群')
+  assert.equal(config.channelOptions.qq.target, '')
+  assert.equal(config.channelOptions.qq.targetType, 'c2c')
   assert.equal(config.channelOptions.qq.scope, 'group')
   assert.equal(config.channelOptions.qq.tool, 'qq_send__legacy')
+})
+
+test('QQ targets stay private-only', () => {
+  const config = sanitizeConfig({
+    channelOptions: {
+      qq: { target: 'group|group1', targetType: 'group', targetManual: 'user1' },
+    },
+  })
+  assert.equal(config.channelOptions.qq.target, '')
+  assert.equal(config.channelOptions.qq.targetType, 'c2c')
+  assert.equal(config.channelOptions.qq.targetManual, 'user1')
+
+  const manual = sanitizeConfig({
+    channelOptions: {
+      qq: { target: '__manual__', targetManual: 'group-openid', targetType: 'group' },
+    },
+  })
+  assert.equal(manual.channelOptions.qq.target, '')
+  assert.equal(manual.channelOptions.qq.targetManual, '')
+  assert.equal(manual.channelOptions.qq.targetType, 'c2c')
 })
 
 
