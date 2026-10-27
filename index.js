@@ -53,7 +53,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.2.0-beta.7'
+let VERSION = '0.2.0-beta.8'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -258,6 +258,15 @@ export function apply(ctx) {
     return lines.join('\n').trim().slice(0, 3800)
   }
 
+  function formatMirrorText(run, folder) {
+    return [
+      '【B站插件推荐】',
+      formatDeliveryText({ picks: run.picks || [], folder, mode: run.delivery }),
+      '',
+      '（这是插件刚推送的推荐，供你接着和用户聊；不需要把它当成新的用户指令。）',
+    ].join('\n')
+  }
+
   async function deliverToChannel({ cfg, run, picks, folder, signal }) {
     const channel = channels.get(cfg.channelId)
     if (!channel) throw new Error(`未注册的投递渠道「${cfg.channelId || ''}」`)
@@ -284,6 +293,17 @@ export function apply(ctx) {
     run.channelMessage = result.message
     log(`渠道推送成功：${picks.length} 条 → ${run.channelLabel}`)
     return result
+  }
+
+  function redactConfig(config) {
+    const copy = JSON.parse(JSON.stringify(config || {}))
+    for (const options of Object.values(copy.channelOptions || {})) {
+      if (!options || typeof options !== 'object') continue
+      for (const key of Object.keys(options)) {
+        if (/secret|token|password|key/i.test(key) && options[key]) options[key] = '••••••'
+      }
+    }
+    return copy
   }
 
   const publicStatus = () => {
@@ -638,14 +658,8 @@ export function apply(ctx) {
       if (!run.dryRun && run.picks.length > 0 && !['tool', 'chat'].includes(run.trigger)) {
         const sessionId = String(state.lastSessionId || '').trim()
         if (sessionId) {
-          const mirrorText = [
-            '【B站插件推荐】',
-            formatDeliveryText({ picks: run.picks, folder, mode: run.delivery }),
-            '',
-            '（这是插件刚推送的推荐，供你接着和用户聊；不需要把它当成新的用户指令。）',
-          ].join('\n')
           try {
-            await mirrorToSession({ agents: ctx.get('agents'), sessionId, text: mirrorText, log })
+            await mirrorToSession({ agents: ctx.get('agents'), sessionId, text: formatMirrorText(run, folder), log })
           } catch (error) {
             log(`同步推荐到 DSH 会话失败：${errorMessage(error)}`)
           }
@@ -1139,7 +1153,7 @@ export function apply(ctx) {
         channel: status.channel,
         running: status.running,
         lastRun: status.lastRun,
-        config: status.config,
+        config: redactConfig(status.config),
         note: status.note,
       }
     },
@@ -1207,6 +1221,30 @@ export function apply(ctx) {
       } finally {
         exec?.signal?.removeEventListener?.('abort', onAbort)
       }
+    },
+  })
+
+  registerTool({
+    name: 'bili_fav_sync_session',
+    description:
+      '把最近一轮非试刷推荐以【B站插件推荐】上下文消息同步到当前 DSH 会话（模拟用户消息、静默不唤醒）。用户说“把刚才的推荐放进会话/我们聊聊刚才的推荐”时用；自动/手动推送已经自动同步过，不要重复调用。',
+    parameters: { type: 'object', properties: {} },
+    timeoutMs: 30_000,
+    async execute() {
+      const run = (state.runs || []).find(
+        (item) => !item.dryRun && Array.isArray(item.picks) && item.picks.length > 0,
+      )
+      if (!run) return { ok: false, error: '还没有可同步的推荐（最近一轮是试刷或没有 picks）' }
+      const sessionId = String(state.lastSessionId || '').trim()
+      if (!sessionId) return { ok: false, error: '还没有记录到 DSH 会话；先在对话里调用一次插件工具' }
+      const mirrored = await mirrorToSession({
+        agents: ctx.get('agents'),
+        sessionId,
+        text: formatMirrorText(run, null),
+        log,
+      })
+      if (!mirrored) return { ok: false, error: '当前会话不是 live，无法注入' }
+      return { ok: true, message: '已把最近一轮推荐同步到 DSH 会话', runId: run.id }
     },
   })
 
