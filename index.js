@@ -1293,7 +1293,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_recommend',
     description:
-      '当用户在对话里让你推荐 B站视频、换一批，或者问“有什么好看/为什么推这个”时使用：把用户这句话作为一次性偏好，即时刷一轮推荐流，返回一条可以直接发给用户的短推荐（只讲 1 条、2–3 句、≤180 字）和理由（以及配置的 replyPrompt；最终回复按它改写）。不收藏、不推送，也不修改已保存的偏好。追问上一批某条推荐的理由时，先读 bili_fav_status 的 lastRun，不要重新刷。',
+      '当用户在对话里让你推荐 B站视频、换一批，或者问“有什么好看/为什么推这个”时使用：把用户这句话作为一次性偏好，即时刷一轮推荐流，返回一条中性的短推荐草稿（只讲 1 条、2–3 句、≤180 字）和理由，以及配置的 replyPrompt；最终回复要按 replyPrompt 补上称呼/自称和语气。不收藏、不推送，也不修改已保存的偏好。追问上一批某条推荐的理由时，先读 bili_fav_status 的 lastRun，不要重新刷。',
     parameters: {
       type: 'object',
       properties: {

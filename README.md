@@ -74,7 +74,7 @@ dsh plugin --profile web add /path/to/this/directory
 
 | 工具 | 用途 |
 |---|---|
-| `bili_fav_recommend` | 即时刷一轮，返回 picks、理由和配置的 `replyPrompt`；不收藏、不推送 |
+| `bili_fav_recommend` | 即时刷一轮，返回一条中性短草稿、picks、理由和配置的 `replyPrompt`；不收藏、不推送 |
 | `bili_fav_push` | 把 agent 自己写的 `text` 通过 QQ 官方 API 发出去；纯文本或推荐都行，`runId` 可选 |
 | `bili_fav_last` | 只读最近一轮推荐（标题/链接/理由），用于回答“刚才推荐了什么/为什么” |
 | `bili_fav_preview` | 只预览一轮，不写收藏、不发送 |
