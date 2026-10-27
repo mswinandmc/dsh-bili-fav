@@ -1,6 +1,6 @@
-# dsh-bili-fav ｜ B站自主刷片
+# dsh-bili-qq ｜ B站自主刷片
 
-[![npm](https://img.shields.io/npm/v/dsh-bili-fav.svg)](https://www.npmjs.com/package/dsh-bili-fav)
+[![npm](https://img.shields.io/npm/v/dsh-bili-qq.svg)](https://www.npmjs.com/package/dsh-bili-qq)
 
 用你的哔哩哔哩账号刷推荐流，让模型**自己决定点开哪些视频、自己读字幕、按自己的品味挑片**，最后把挑中的视频收藏到你指定的自定义收藏夹（可以公开分享）。
 
@@ -36,7 +36,7 @@
 | **只 QQ** | 把「标题 + BV 链接 + 理由」交给 QQ 渠道，不写收藏夹 | 安装并启用 QQ 适配器 |
 | **两者都要** | 收藏夹和渠道各走一遍；一路失败会标在记录里 | 两者都需要 |
 
-核心包里没有任何 QQ 代码；内置的 **Webhook** 是通用 HTTP 渠道，不需要 QQ Bot。QQ 推送由独立包 **`dsh-bili-fav-qq`** 提供（源码在独立库 https://github.com/mswinandmc/dsh-bili-fav-qq）：它**直接调用腾讯 QQ 官方 Bot API**，不依赖 QQ Bot 插件；安装并启用后，设置页会出现 **QQ Bot（官方 API）** 渠道，字段为 AppID / ClientSecret / 目标（可选下拉，官方事件网关自动收集，也可手动填 openid）/ 手动目标类型 / 可选 msg_id；留空会用上次成功目标。
+核心包里没有任何 QQ 代码；内置的 **Webhook** 是通用 HTTP 渠道，不需要 QQ Bot。QQ 推送由独立包 **`内置 QQ 渠道`** 提供（源码在独立库 https://github.com/mswinandmc/内置 QQ 渠道）：它**直接调用腾讯 QQ 官方 Bot API**，不依赖 QQ Bot 插件；安装并启用后，设置页会出现 **QQ Bot（官方 API）** 渠道，字段为 AppID / ClientSecret / 目标（可选下拉，官方事件网关自动收集，也可手动填 openid）/ 手动目标类型 / 可选 msg_id；留空会用上次成功目标。
 
 「只 DSH 会话」和「只 QQ」都不要求 B站登录（游客推荐流；个性化推荐和字幕仍需登录）。QQ 主动消息的配额/权限由适配器负责，失败原因会写进运行记录。
 
@@ -126,7 +126,7 @@ export function apply(ctx) {
 从 npm 安装（推荐）：
 
 ```bash
-dsh plugin --profile web add dsh-bili-fav
+dsh plugin --profile web add dsh-bili-qq
 ```
 
 本地开发目录：
@@ -137,7 +137,7 @@ dsh plugin --profile web add /path/to/this/directory
 
 这个包本身就是一个 DSH bundle（`package.json` 里的 `dsh.bundle.patch` + `dsh.client`）。装完重启一次 DSH，然后进 **设置 → B站自主刷片**。
 
-> 如果你是让 AI 助手装：从 npm 直接 `dsh plugin --profile web add dsh-bili-fav`；本地开发时用插件管理器的 `install_bundle`，target 指向本目录。装完用 `Cordis Inspect` 的 `Slots.listSubTree` 确认 `settings.section` 里多了一个 `bili-fav`。
+> 如果你是让 AI 助手装：从 npm 直接 `dsh plugin --profile web add dsh-bili-qq`；本地开发时用插件管理器的 `install_bundle`，target 指向本目录。装完用 `Cordis Inspect` 的 `Slots.listSubTree` 确认 `settings.section` 里多了一个 `bili-fav`。
 
 ## 第一次使用
 
@@ -184,7 +184,7 @@ dsh plugin --profile web add /path/to/this/directory
 
 1. 校验 tag 与 `package.json` 版本一致；
 2. 跑 release preflight 和单元测试；
-3. 用 **npm trusted publishing（OIDC，无 NPM_TOKEN）** 发布 `dsh-bili-fav`；
+3. 用 **npm trusted publishing（OIDC，无 NPM_TOKEN）** 发布 `dsh-bili-qq`；
 4. 创建对应的 GitHub Release。
 
 ```bash
@@ -192,7 +192,7 @@ git tag v0.1.1
 git push origin v0.1.1
 ```
 
-npm 侧只需一次性配置：npmjs.com → `dsh-bili-fav` → Settings → Trusted Publishers → GitHub Actions，填 `mswinandmc` / `dsh-bili-fav` / `release.yml`，允许 `npm publish`。首次发布前如果 npm 上还没有这个包，需要先用有权限的 npm 账号做一次首发布（或在 npm 上先创建包），之后 tag 发布就完全走 OIDC。
+npm 侧只需一次性配置：npmjs.com → `dsh-bili-qq` → Settings → Trusted Publishers → GitHub Actions，填 `mswinandmc` / `dsh-bili-qq` / `release.yml`，允许 `npm publish`。首次发布前如果 npm 上还没有这个包，需要先用有权限的 npm 账号做一次首发布（或在 npm 上先创建包），之后 tag 发布就完全走 OIDC。
 
 ## 致谢
 

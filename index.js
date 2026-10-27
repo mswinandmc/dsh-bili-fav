@@ -1,5 +1,5 @@
 /**
- * Host half of dsh-bili-fav.
+ * Host half of dsh-bili-qq.
  *
  * Responsibilities:
  *   - own the B站 account cookies (0600 file under <DSH_HOME>/bili-fav)
@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { BiliApi, BiliError } from './lib/bili.js'
 import { createChannelRegistry } from './lib/channels.js'
 import { createWebhookChannel } from './lib/webhook.js'
+import { createQQChannel } from './lib/qq-channel.js'
 import { formatChatReply } from './lib/chat.js'
 import { createSessionChannel } from './lib/session-channel.js'
 import { promptSession } from './lib/session-prompt.js'
@@ -54,7 +55,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.2.0-beta.17'
+let VERSION = '0.2.0-beta.18'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -171,6 +172,36 @@ export function apply(ctx) {
   const log = makeLogger(files.log)
   const channels = createChannelRegistry()
   channels.dataDir = home
+  try {
+    const qq = createQQChannel({
+      dataDir: home,
+      onFields: (fields) => {
+        try {
+          channels.updateFields?.('qq', fields)
+        } catch {
+          /* the registry is not ready yet */
+        }
+      },
+    })
+    const unregister = channels.register(qq)
+    ctx.effect(
+      () => () => {
+        try {
+          unregister()
+        } catch {
+          /* ignore */
+        }
+        try {
+          qq.dispose?.()
+        } catch {
+          /* ignore */
+        }
+      },
+      'bili-fav: official QQ channel',
+    )
+  } catch (error) {
+    log(`注册内置 QQ 渠道失败：${errorMessage(error)}`)
+  }
   try {
     channels.register(createSessionChannel({ ctx, home, log }))
   } catch (error) {

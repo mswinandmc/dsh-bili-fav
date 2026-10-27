@@ -1,7 +1,7 @@
 {
-  "name": "dsh-bili-fav",
-  "version": "0.2.0-beta.17",
-  "description": "用你的 B站账号刷推荐流，让模型自己点开视频、读字幕、按自己的品味挑片，并收藏到你自定义的收藏夹。",
+  "name": "dsh-bili-qq",
+  "version": "0.2.0-beta.18",
+  "description": "B站自主刷片 + 今天的鱼：agent 在 DSH 会话里刷推荐、写理由，并通过内置腾讯 QQ 官方 API 推送。",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -43,17 +43,17 @@
     "deepseek",
     "bilibili",
     "b站",
-    "favorites",
-    "收藏夹",
+    "qq",
+    "tencent",
     "ai"
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mswinandmc/dsh-bili-fav.git"
+    "url": "git+https://github.com/mswinandmc/dsh-bili-qq.git"
   },
-  "homepage": "https://github.com/mswinandmc/dsh-bili-fav#readme",
+  "homepage": "https://github.com/mswinandmc/dsh-bili-qq#readme",
   "bugs": {
-    "url": "https://github.com/mswinandmc/dsh-bili-fav/issues"
+    "url": "https://github.com/mswinandmc/dsh-bili-qq/issues"
   },
   "author": "mswinandmc",
   "engines": {

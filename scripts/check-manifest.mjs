@@ -1,5 +1,5 @@
 /**
- * Release preflight for dsh-bili-fav.
+ * Release preflight for dsh-bili-qq.
  *
  * Runs locally (`npm run check`) and in both GitHub workflows before a release
  * can be cut. It verifies the files the package claims to ship, the DSH bundle
@@ -41,7 +41,7 @@ function isDirectory(relative) {
 const manifest = JSON.parse(read('package.json'))
 
 // #region manifest shape
-if (manifest.name !== 'dsh-bili-fav') fail(`package.json: name must be dsh-bili-fav, got ${manifest.name}`)
+if (manifest.name !== 'dsh-bili-qq') fail(`package.json: name must be dsh-bili-qq, got ${manifest.name}`)
 if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(String(manifest.version))) {
   fail(`package.json: invalid version ${manifest.version}`)
 }
@@ -52,10 +52,10 @@ if (typeof manifest.description !== 'string' || manifest.description.trim() === 
 }
 if (manifest.license !== 'MIT') fail('package.json: license must be MIT')
 if (manifest.main !== 'index.js') fail('package.json: main must be index.js')
-if (typeof manifest.repository?.url !== 'string' || !manifest.repository.url.includes('github.com/mswinandmc/dsh-bili-fav')) {
-  fail('package.json: repository.url must point at github.com/mswinandmc/dsh-bili-fav')
+if (typeof manifest.repository?.url !== 'string' || !manifest.repository.url.includes('github.com/mswinandmc/dsh-bili-qq')) {
+  fail('package.json: repository.url must point at github.com/mswinandmc/dsh-bili-qq')
 }
-if (typeof manifest.homepage !== 'string' || !manifest.homepage.includes('github.com/mswinandmc/dsh-bili-fav')) {
+if (typeof manifest.homepage !== 'string' || !manifest.homepage.includes('github.com/mswinandmc/dsh-bili-qq')) {
   fail('package.json: homepage must point at the GitHub repository')
 }
 note(`${manifest.name}@${manifest.version}`)
@@ -124,8 +124,8 @@ for (const required of ['lib', 'vendor', 'locale']) {
 // #region bundle patch
 if (typeof patchPath === 'string' && has(patchPath)) {
   const patch = read(patchPath)
-  if (!patch.includes('name: dsh-bili-fav') && !patch.includes("name: 'dsh-bili-fav'")) {
-    fail(`${patchPath}: must insert a row named "dsh-bili-fav"`)
+  if (!patch.includes('name: dsh-bili-qq') && !patch.includes("name: 'dsh-bili-qq'")) {
+    fail(`${patchPath}: must insert a row named "dsh-bili-qq"`)
   }
   if (!/^\s*-\s*insert:/mu.test(patch)) fail(`${patchPath}: must contain an insert list`)
 }

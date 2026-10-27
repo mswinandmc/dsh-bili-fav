@@ -1,12 +1,12 @@
 /**
- * Browser half of dsh-bili-fav: one page under Settings.
+ * Browser half of dsh-bili-qq: one page under Settings.
  *
  * The page talks to the host through the authenticated `/api/bili-fav` routes.
  * It renders with the host's theme tokens and registers into `settings.section`
  * so it looks like a normal settings page rather than an overlay.
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-bili-fav',
+  id: 'dsh-bili-qq',
   factory(require) {
     const React = require('react')
     const h = React.createElement
@@ -743,7 +743,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                 ? h(
                     'div',
                     { 'data-bf-note': '', 'data-bf-warn': '' },
-                    '还没有注册 QQ 渠道。安装 dsh-bili-fav-qq，然后刷新本页。',
+                    '还没有注册内置 QQ 渠道；刷新本页或查看插件日志。',
                   )
                 : h(
                     React.Fragment,
@@ -892,7 +892,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
               h(
                 'div',
                 { 'data-bf-note': '' },
-                '最终推送走 QQ 官方 API（dsh-bili-fav-qq）。',
+                '最终推送走内置的 QQ 官方 API。',
               ),
             )
           : null,
