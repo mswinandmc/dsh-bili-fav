@@ -1,6 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { CHAT_REPLY_LIMIT, formatChatReply } from '../lib/chat.js'
+import { CHAT_REPLY_LIMIT, chatReplyParts, formatChatReply } from '../lib/chat.js'
+
+test('chatReplyParts returns reason and link as two separate messages', () => {
+  const parts = chatReplyParts([
+    { bvid: 'BV1xx', title: '一个测试视频', reason: '因为讲得清楚，而且有我关心的细节。' },
+  ])
+  assert.equal(parts.length, 2)
+  assert.match(parts[0], /一个测试视频/)
+  assert.match(parts[0], /讲得清楚/)
+  assert.doesNotMatch(parts[0], /https:\/\//)
+  assert.equal(parts[1], 'https://www.bilibili.com/video/BV1xx')
+  assert.deepEqual(chatReplyParts([]), [])
+})
 
 test('conversational reply has one reason line and one link line', () => {
   const text = formatChatReply([

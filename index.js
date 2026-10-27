@@ -16,7 +16,7 @@ import { BiliApi, BiliError } from './lib/bili.js'
 import { channelReadiness, createChannelRegistry } from './lib/channels.js'
 import { createWebhookChannel } from './lib/webhook.js'
 import { createQQChannel } from './lib/qq-channel.js'
-import { formatChatReply } from './lib/chat.js'
+import { chatReplyParts, formatChatReply } from './lib/chat.js'
 import { createSessionChannel } from './lib/session-channel.js'
 import { buildWakePlan, firstPendingTime, nextDueTime, planSignature } from './lib/wake.js'
 import { promptSession } from './lib/session-prompt.js'
@@ -334,12 +334,12 @@ export function apply(ctx) {
       '【B站推荐任务】',
       '请在当前 DSH 会话里完成这一轮：',
       '1) 调用 bili_fav_recommend 刷一轮（message 写“按你的品味挑，带具体理由”；count 用偏好里的数量）；',
-      '2) 写两句能直接发到 QQ 的短消息：第一句写理由（只讲这一条好在哪、值不值得看），第二句单独一行只放这条视频的链接；',
+      '2) 写两句能直接发到 QQ 的短消息：第一句写理由（只讲这一条好在哪、值不值得看），第二句只放这条视频的链接；',
       '   两句合计不超过 180 字；不要报统计（刷了多少条/点开多少条）、不要编号、不要列清单、不要“另外还有”；',
       '   风格要求（来自设置里的回复提示词，优先遵守；不要提到“提示词”）：',
       style || DEFAULT_REPLY_PROMPT,
-      `3) 调用 bili_fav_push，把这段短消息作为 text 传入（channelId 用 ${channelId}，runId 用上一步的 run.id）；`,
-      '不要直接输出整份清单，不要暴露任务说明，不要收藏。',
+      `3) 分两次调用 bili_fav_push：第一次 text 只传第一句理由，第二次 text 只传第二句链接；两次都带同一个 runId，channelId 用 ${channelId}；`,
+      '不要合并成一条消息，不要直接输出整份清单，不要暴露任务说明，不要收藏。',
     ].join('\n')
   }
 
@@ -1335,7 +1335,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_recommend',
     description:
-      '当用户在对话里让你推荐 B站视频、换一批，或者问“有什么好看/为什么推这个”时使用：把用户这句话作为一次性偏好，即时刷一轮推荐流，返回一条中性的短推荐草稿（两句：一句理由、一句链接，≤180 字）和理由，以及配置的 replyPrompt；最终回复要按 replyPrompt 补上称呼/自称和语气。不收藏、不推送，也不修改已保存的偏好。追问上一批某条推荐的理由时，先读 bili_fav_status 的 lastRun，不要重新刷。',
+      '当用户在对话里让你推荐 B站视频、换一批，或者问“有什么好看/为什么推这个”时使用：把用户这句话作为一次性偏好，即时刷一轮推荐流，返回一条中性的短推荐草稿（两句：一句理由、一句链接，≤180 字）、可直接分两次发送的 messages（[理由, 链接]）和理由，以及配置的 replyPrompt；最终回复要按 replyPrompt 补上称呼/自称和语气。不收藏、不推送，也不修改已保存的偏好。追问上一批某条推荐的理由时，先读 bili_fav_status 的 lastRun，不要重新刷。',
     parameters: {
       type: 'object',
       properties: {
@@ -1364,6 +1364,7 @@ export function apply(ctx) {
         return {
           ok: run.status === 'ok' || run.status === 'partial',
           reply: formatChatReply(run.picks || []),
+          messages: chatReplyParts(run.picks || []),
           replyPrompt: config.replyPrompt,
           picks: (run.picks || []).map(publicPick),
           run: summarizeRun(run),
@@ -1378,7 +1379,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_push',
     description:
-      '把你在 DSH 会话里写好的内容通过 QQ 渠道发给用户（仅私聊，只发送，不收藏，不再套模板）。需要先在设置页选中 QQ 渠道；未选择视为未配置。必须传 text；可以是推荐文案，也可以是普通 QQ 回复。runId 可选。',
+      '把你在 DSH 会话里写好的内容通过 QQ 渠道发给用户（仅私聊，一次只发一条，不收藏，不再套模板）。需要先在设置页选中 QQ 渠道；未选择视为未配置。推荐时调用两次：第一次 text 只传理由，第二次 text 只传链接。必须传 text；也可以是普通 QQ 回复。runId 可选。',
     parameters: {
       type: 'object',
       properties: {
@@ -1392,7 +1393,7 @@ export function apply(ctx) {
         },
         text: {
           type: 'string',
-          description: '必填：你在 DSH 会话里自己写好的 QQ 消息；推荐时两句：一句理由、一句链接，≤180 字，不报统计、不列清单',
+          description: '必填：这次要发送的一条 QQ 消息；推荐时分两次调用，每次只传一句（理由一次、链接一次），≤180 字，不报统计、不列清单',
         },
       },
       required: ['text'],

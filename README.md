@@ -22,8 +22,8 @@
 
 1. 到点或点「让 agent 刷一轮」，插件把任务 prompt 进当前 DSH 会话。
 2. agent 调 `bili_fav_recommend`，用 B站 Cookie / 游客推荐流取候选，像普通观众一样被某条吸引、点开读字幕，再决定要不要推；不必凑满，也可以今天什么都不推。
-3. agent 按「回复提示词」自己写 QQ 文案（不套固定模板）：只写两句，一句理由、一句链接（链接单独一行）；两句合计不超过 180 字，不报统计、不编号、不列清单；对用户的称呼和自称也由回复提示词决定。
-4. agent 调 `bili_fav_push`，把文案作为 `text` 通过内置 QQ 官方渠道发出去。
+3. agent 按「回复提示词」自己写 QQ 文案（不套固定模板）：分两条发，第一条理由，第二条链接；两条合计不超过 180 字，不报统计、不编号、不列清单；对用户的称呼和自称也由回复提示词决定。
+4. agent 分两次调用 `bili_fav_push`，每次只传一条，插件通过内置 QQ 官方渠道分别发出去。
 5. 用户在 QQ 回消息，QQ 网关把消息转回同一 DSH 会话，agent 用 `bili_fav_push` 回复。
 
 宿主不会绕过 agent 直接推 QQ；QQ 消息也不会只在会话里落灰。
@@ -69,8 +69,8 @@ dsh plugin --profile web add https://github.com/mswinandmc/dsh-bili-qq
 
 | 工具 | 用途 |
 |---|---|
-| `bili_fav_recommend` | 即时刷一轮，返回一条中性短草稿、picks、理由和配置的 `replyPrompt`；不收藏、不推送 |
-| `bili_fav_push` | 把 agent 自己写的 `text` 通过 QQ 官方 API 发出去；需要先在设置页选中渠道，未选择视为未配置；`runId` 可选 |
+| `bili_fav_recommend` | 即时刷一轮，返回 messages（[理由, 链接]）、picks、理由和配置的 `replyPrompt`；不收藏、不推送 |
+| `bili_fav_push` | 一次发一条 agent 写的 `text`；推荐时分两次调用（先理由、再链接）。需要先在设置页选中渠道，未选择视为未配置；`runId` 可选 |
 | `bili_fav_last` | 只读最近一轮推荐（标题/链接/理由），用于回答“刚才推荐了什么/为什么” |
 | `bili_fav_preview` | 只预览一轮，不写收藏、不发送 |
 | `bili_fav_run` | 只收藏（不推送）；需要 B站登录 |
