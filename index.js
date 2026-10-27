@@ -17,6 +17,7 @@ import { createChannelRegistry } from './lib/channels.js'
 import { createWebhookChannel } from './lib/webhook.js'
 import { formatChatReply } from './lib/chat.js'
 import { createSessionChannel } from './lib/session-channel.js'
+import { promptSession } from './lib/session-prompt.js'
 import { curate } from './lib/judge.js'
 import { qrSvg } from './lib/qr.js'
 import {
@@ -53,7 +54,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.2.0-beta.12'
+let VERSION = '0.2.0-beta.13'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -1090,8 +1091,38 @@ export function apply(ctx) {
     },
   }
 
+  const captureSession = (exec) => {
+    const rawId = String(exec?.agent?.id ?? exec?.sessionId ?? '').trim()
+    if (!rawId) return
+    let targetId = rawId
+    try {
+      const sessions = ctx.get('sessions')
+      const parent = sessions?.get?.(rawId)?.header?.parentSession
+      if (parent) targetId = String(parent)
+    } catch {
+      /* sessions is optional */
+    }
+    if (!targetId) return
+    const next = targetId.slice(0, 120)
+    if (state.lastSessionId === next) return
+    state.lastSessionId = next
+    try {
+      saveState(home, state)
+    } catch (error) {
+      log(`记录 DSH 会话失败：${errorMessage(error)}`)
+    }
+  }
+
   const registerTool = (definition) => {
-    ctx.effect(() => ctx.tools.register({ ...definition, output: toolOutput }), `bili-fav: ${definition.name}`)
+    const execute = definition.execute
+    const wrapped = {
+      ...definition,
+      async execute(args, exec) {
+        captureSession(exec)
+        return execute.call(definition, args, exec)
+      },
+    }
+    ctx.effect(() => ctx.tools.register({ ...wrapped, output: toolOutput }), `bili-fav: ${definition.name}`)
   }
 
   registerTool({
@@ -1178,6 +1209,84 @@ export function apply(ctx) {
         }
       } finally {
         exec?.signal?.removeEventListener?.('abort', onAbort)
+      }
+    },
+  })
+
+  registerTool({
+    name: 'bili_fav_push',
+    description:
+      '把刚刷出的一轮推荐通过 QQ 渠道推给用户（只推送，不收藏）。在 DSH 会话里完成推荐后调用；runId 不填=最近一轮。到点自动任务、用户说“推给我/推到QQ”时用。',
+    parameters: {
+      type: 'object',
+      properties: {
+        runId: {
+          type: 'string',
+          description: 'bili_fav_recommend / bili_fav_run 返回的 run id；不填=最近一轮',
+        },
+        channelId: {
+          type: 'string',
+          description: '渠道 id；默认优先 qq',
+        },
+        text: {
+          type: 'string',
+          description: '可选，覆盖推送正文',
+        },
+      },
+    },
+    timeoutMs: 60_000,
+    async execute(args = {}) {
+      let configNow = config
+      try {
+        configNow = loadConfig(home)
+      } catch (error) {
+        log(`推送前读取配置失败：${errorMessage(error)}`)
+      }
+      const channelId = String(
+        args.channelId || (channels.get('qq') ? 'qq' : configNow.channelId) || '',
+      ).trim()
+      if (!channelId) return { ok: false, error: '没有配置 QQ 推送渠道' }
+      const channel = channels.get(channelId)
+      if (!channel) return { ok: false, error: `渠道「${channelId}」没有注册` }
+      if (channel.available === false) return { ok: false, error: `渠道「${channel.label}」当前不可用` }
+      const options = configNow.channelOptions?.[channelId] || {}
+      const missing = (channel.fields || [])
+        .filter((field) => field.required && !String(options[field.key] ?? field.default ?? '').trim())
+        .map((field) => field.label || field.key)
+      if (missing.length > 0) {
+        return { ok: false, error: `渠道「${channel.label}」还缺：${missing.join('、')}` }
+      }
+      const run = args.runId
+        ? (state.runs || []).find((item) => item.id === args.runId)
+        : (state.runs || [])[0]
+      if (!run || !Array.isArray(run.picks) || run.picks.length === 0) {
+        return { ok: false, error: '没有可推送的推荐；先刷一轮' }
+      }
+      const text = String(args.text || '').trim() ||
+        formatDeliveryText({ picks: run.picks, folder: null, mode: 'channel' })
+      try {
+        const result = await channels.send(
+          channelId,
+          {
+            text,
+            title: '🐟 大肥鱼推荐',
+            picks: run.picks,
+            folder: null,
+            mode: 'channel',
+            runId: run.id,
+          },
+          options,
+        )
+        return {
+          ok: true,
+          message: result?.message || `已推送到 ${channel.label}`,
+          channelId,
+          channelLabel: result?.channel || channel.label,
+          runId: run.id,
+          count: run.picks.length,
+        }
+      } catch (error) {
+        return { ok: false, error: `推送失败：${errorMessage(error)}` }
       }
     },
   })
@@ -1297,15 +1406,6 @@ export function apply(ctx) {
       try {
         config = loadConfig(home)
         if (!config.autoRun.enabled) return
-        const mode = ['favorite', 'channel', 'both', 'session'].includes(config.deliveryMode)
-          ? config.deliveryMode
-          : 'session'
-        if (mode !== 'channel' && mode !== 'session' && !api.loggedIn) return
-        if (mode !== 'favorite') {
-          const id = mode === 'session' ? 'session' : config.channelId
-          const descriptor = channelList().find((item) => item.id === id)
-          if (!descriptor || descriptor.available === false) return
-        }
         const [targetHour, targetMinute] = config.autoRun.time.split(':').map(Number)
         if (!Number.isFinite(targetHour) || !Number.isFinite(targetMinute)) return
         const now = new Date()
@@ -1318,8 +1418,24 @@ export function apply(ctx) {
         if (state.autoLastDay === day) return
         state.autoLastDay = day
         saveState(home, state)
-        log(`到达定时时间 ${config.autoRun.time}，自动开刷`)
-        startRun({ dryRun: false, trigger: 'auto' })
+        const sessionId = String(state.lastSessionId || '').trim()
+        if (!sessionId) {
+          log(`到达定时时间 ${config.autoRun.time}，但还没有记录到 DSH 会话；等下一次用户交互`)
+          return
+        }
+        const task = [
+          '【B站自主刷片 · 定时任务】',
+          '到 B站推荐时间了。请在当前 DSH 会话里完成这一轮：',
+          '1) 调用 bili_fav_recommend 刷一轮（message 写“按你的品味挑，带具体理由”；count 用偏好里的数量）；',
+          '2) 从返回的 run 里确认要推的视频；',
+          '3) 调用 bili_fav_push 把这一轮推到 QQ（channelId 用 qq，runId 用上一步的 run.id）；',
+          '4) 推送后用一两句话告诉用户推好了，邀请他追问或换一批。',
+          '不要直接输出整份清单，不要暴露这条任务说明，不要收藏。',
+        ].join('\n')
+        void promptSession({ ctx, sessionId, text: task, log }).catch((error) => {
+          log(`自动任务投递异常：${errorMessage(error)}`)
+        })
+        log(`到达定时时间 ${config.autoRun.time}，已把任务交给 DSH 会话 ${sessionId}`)
       } catch (error) {
         log(`定时检查失败：${errorMessage(error)}`)
       }

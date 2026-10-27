@@ -251,7 +251,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         count: Number(config.count) || 5,
         deliveryMode: ['favorite', 'channel', 'both', 'session'].includes(config.deliveryMode)
           ? config.deliveryMode
-          : 'session',
+          : 'favorite',
         channelId: String(config.channelId || ''),
         channelOptions:
           config.channelOptions && typeof config.channelOptions === 'object'
