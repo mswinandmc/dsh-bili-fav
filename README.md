@@ -44,11 +44,6 @@ dsh plugin --profile web add https://github.com/mswinandmc/dsh-bili-qq
 
 这个包本身就是 DSH bundle（`dsh.bundle.patch` + `dsh.client`）。装完重启 DSH，进 **设置 → B站自主刷片**。
 
-本地开发目录：
-
-```bash
-dsh plugin --profile web add /path/to/this/directory
-```
 
 ## 第一次使用
 
@@ -140,25 +135,7 @@ npm run check       # release preflight + 测试
 npm pack --dry-run  # 查看发布文件
 ```
 
-仓库：https://github.com/mswinandmc/dsh-bili-qq
 
-## 发布
-
-版本号写在 `package.json`。推同版本 `v*` tag 会触发 `.github/workflows/release.yml`：
-
-1. 校验 tag 与 `package.json` 版本；
-2. 跑 preflight 和单元测试；
-3. 用 npm trusted publishing（OIDC，无 NPM_TOKEN）发布 `dsh-bili-qq`；
-4. 创建 GitHub Release。
-
-`beta` tag 走 npm `beta`；`rc` tag 按主人决定走 `latest`；`pre` tag 走 `next`；稳定版走 `latest`。
-
-npm 侧需要为 `dsh-bili-qq` 配置 Trusted Publisher：GitHub Actions / `mswinandmc` / `dsh-bili-qq` / `release.yml`，允许 `npm publish`。
-
-```bash
-git tag v1.0.0-pre1
-git push origin v1.0.0-pre1
-```
 
 ## 已知限制
 
