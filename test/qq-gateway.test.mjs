@@ -81,6 +81,7 @@ test('official gateway events fill the target dropdown and persist', async () =>
   const { fetchImpl } = makeFetch()
   const dir = mkdtempSync(join(tmpdir(), 'bili-fav-qq-'))
   let fields = null
+  const incoming = []
   const channel = createQQChannel({
     fetchImpl,
     webSocketImpl: FakeWebSocket,
@@ -90,6 +91,7 @@ test('official gateway events fill the target dropdown and persist', async () =>
     onFields: (next) => {
       fields = next
     },
+    onMessage: (message) => incoming.push(message),
   })
   try {
     const pending = channel.listTargets({ appId: 'app', appSecret: 'secret' })
@@ -107,19 +109,23 @@ test('official gateway events fill the target dropdown and persist', async () =>
     socket.message({
       op: 0,
       t: 'C2C_MESSAGE_CREATE',
-      d: { id: 'm1', author: { user_openid: 'user1', username: 'Alice' } },
+      d: { id: 'm1', content: 'hello', author: { user_openid: 'user1', username: 'Alice' } },
     })
     socket.message({
       op: 0,
       t: 'GROUP_AT_MESSAGE_CREATE',
       d: {
         id: 'm2',
+        content: 'group hello',
         group_openid: 'group1',
         author: { member_openid: 'member1', username: 'Bob' },
       },
     })
 
     const result = await pending
+    assert.deepEqual(incoming.map((message) => message.text), ['hello', 'group hello'])
+    assert.equal(incoming[0].type, 'c2c')
+    assert.equal(incoming[1].type, 'group')
     assert.equal(result.targets.length, 2)
     assert.deepEqual(
       result.targets.map((target) => `${target.type}|${target.id}`).sort(),

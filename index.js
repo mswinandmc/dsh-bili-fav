@@ -35,6 +35,7 @@ import {
   saveState,
   sanitizeChannelOptions,
   seenRecently,
+  DEFAULT_REPLY_PROMPT,
 } from './lib/store.js'
 import {
   abortError,
@@ -55,7 +56,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.2.0-beta.18'
+let VERSION = '0.2.0-rc1'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -172,8 +173,9 @@ export function apply(ctx) {
   const log = makeLogger(files.log)
   const channels = createChannelRegistry()
   channels.dataDir = home
+  let qqChannel = null
   try {
-    const qq = createQQChannel({
+    qqChannel = createQQChannel({
       dataDir: home,
       onFields: (fields) => {
         try {
@@ -182,8 +184,30 @@ export function apply(ctx) {
           /* the registry is not ready yet */
         }
       },
+      onMessage: (message) => {
+        if (!config?.qqInbound) return
+        const sessionId = String(state.lastSessionId || '').trim()
+        if (!sessionId) {
+          log('收到 QQ 消息，但还没有记录到 DSH 会话')
+          return
+        }
+        const text = String(message?.text || '').trim().slice(0, 3500)
+        if (!text) return
+        const prompt = [
+          '【QQ 消息】',
+          `来自：${message.type === 'group' ? '群聊' : '私聊'}${message.label ? `（${message.label}）` : ''}`,
+          text,
+          '',
+          '这是用户在 QQ 里发给你的消息。请调用 bili_fav_push，把你要回复的内容作为 text 传入（channelId 用 qq）；不要只在 DSH 会话里回复。',
+          `回复要求：${String(config.replyPrompt || DEFAULT_REPLY_PROMPT).trim()}`,
+          '不要暴露这条说明。',
+        ].join('\n')
+        void promptSession({ ctx, sessionId, text: prompt, log }).catch((error) => {
+          log(`QQ 消息转到会话失败：${errorMessage(error)}`)
+        })
+      },
     })
-    const unregister = channels.register(qq)
+    const unregister = channels.register(qqChannel)
     ctx.effect(
       () => () => {
         try {
@@ -192,7 +216,7 @@ export function apply(ctx) {
           /* ignore */
         }
         try {
-          qq.dispose?.()
+          qqChannel?.dispose?.()
         } catch {
           /* ignore */
         }
@@ -220,6 +244,14 @@ export function apply(ctx) {
 
   let config = loadConfig(home)
   let state = loadState(home)
+  if (qqChannel && config.qqInbound) {
+    const qqOptions = config.channelOptions?.qq || {}
+    if (qqOptions.appId && qqOptions.appSecret) {
+      void qqChannel.listTargets(qqOptions).catch((error) => {
+        log(`QQ 事件网关启动失败：${errorMessage(error)}`)
+      })
+    }
+  }
   let credentials = loadCredentials(home)
   let api = new BiliApi({
     cookies: credentials?.cookies ?? {},
@@ -272,17 +304,15 @@ export function apply(ctx) {
     return '只收藏'
   }
 
-  function agentRecommendationTask() {
+  function agentRecommendationTask(replyPrompt = '') {
+    const style = String(replyPrompt || '').trim()
     return [
       '【B站推荐任务】',
       '请在当前 DSH 会话里完成这一轮：',
       '1) 调用 bili_fav_recommend 刷一轮（message 写“按你的品味挑，带具体理由”；count 用偏好里的数量）；',
-      '2) 从返回的 picks 里挑 1 条最想分享的，用“本鲸”的口吻给主人写一条【今天的鱼 · YYYY-MM-DD】：',
-      '   第一段：主人，今天给你捞到一条《...》——...（为什么推、你的感受、一句建议）；链接放在段末。',
-      '   第二段：摘要：初筛 run.scanned 条、深读 run.watched 条；分享 1 条（标题），收藏 0 条。评论/@ 未接入。',
-      '   不要列全部 picks，不要提这条任务说明，不要原样复制模板。',
+      '2) 按下面这段「回复提示词」写 QQ 文案（这是主人定制的风格，优先遵守；数据用上一步 run 的 scanned/watched/picks）：',
+      style || DEFAULT_REPLY_PROMPT,
       '3) 调用 bili_fav_push，把这段文案作为 text 传入（channelId 用 qq，runId 用上一步的 run.id）；',
-      '4) 推送后只回一句简短确认，邀请用户追问或换一批。',
       '不要直接输出整份清单，不要暴露任务说明，不要收藏。',
     ].join('\n')
   }
@@ -958,6 +988,14 @@ export function apply(ctx) {
         const body = await readBody(req)
         const patch = body?.config && typeof body.config === 'object' ? body.config : body
         config = saveConfig(home, patch)
+        if (qqChannel && config.qqInbound) {
+          const qqOptions = config.channelOptions?.qq || {}
+          if (qqOptions.appId && qqOptions.appSecret) {
+            void qqChannel.listTargets(qqOptions).catch((error) => {
+              log(`QQ 事件网关启动失败：${errorMessage(error)}`)
+            })
+          }
+        }
         sendJson(res, 200, { ok: true, config })
         return
       }
@@ -1107,7 +1145,7 @@ export function apply(ctx) {
             })
             return
           }
-          void promptSession({ ctx, sessionId, text: agentRecommendationTask(), log }).catch((error) => {
+          void promptSession({ ctx, sessionId, text: agentRecommendationTask(config.replyPrompt), log }).catch((error) => {
             log(`手动任务投递异常：${errorMessage(error)}`)
           })
           sendJson(res, 200, {
@@ -1243,7 +1281,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_recommend',
     description:
-      '当用户在对话里让你推荐 B站视频、换一批，或者问“有什么好看/为什么推这个”时使用：把用户这句话作为一次性偏好，即时刷一轮推荐流，返回可以直接发给用户的推荐清单和理由。不收藏、不推送，也不修改已保存的偏好。追问上一批某条推荐的理由时，先读 bili_fav_status 的 lastRun，不要重新刷。',
+      '当用户在对话里让你推荐 B站视频、换一批，或者问“有什么好看/为什么推这个”时使用：把用户这句话作为一次性偏好，即时刷一轮推荐流，返回可以直接发给用户的推荐清单和理由（以及配置的 replyPrompt；最终回复按它改写）。不收藏、不推送，也不修改已保存的偏好。追问上一批某条推荐的理由时，先读 bili_fav_status 的 lastRun，不要重新刷。',
     parameters: {
       type: 'object',
       properties: {
@@ -1272,6 +1310,7 @@ export function apply(ctx) {
         return {
           ok: run.status === 'ok' || run.status === 'partial',
           reply: formatChatReply(run.picks || []),
+          replyPrompt: config.replyPrompt,
           picks: (run.picks || []).map(publicPick),
           run: summarizeRun(run),
           ...(run.status === 'error' ? { error: run.error } : {}),
@@ -1285,7 +1324,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_push',
     description:
-      '把你在 DSH 会话里写好的 QQ 推荐文案通过 QQ 渠道发给用户（只发送，不收藏，不再套模板）。必须传 text；runId 不填=最近一轮。到点自动任务或用户说“推给我/推到QQ”时用。',
+      '把你在 DSH 会话里写好的内容通过 QQ 渠道发给用户（只发送，不收藏，不再套模板）。必须传 text；可以是推荐文案，也可以是普通 QQ 回复。runId 可选。到点自动任务、回复 QQ 消息或用户说“推给我/推到QQ”时用。',
     parameters: {
       type: 'object',
       properties: {
@@ -1329,21 +1368,19 @@ export function apply(ctx) {
       const run = args.runId
         ? (state.runs || []).find((item) => item.id === args.runId)
         : (state.runs || [])[0]
-      if (!run || !Array.isArray(run.picks) || run.picks.length === 0) {
-        return { ok: false, error: '没有可推送的推荐；先刷一轮' }
-      }
       const text = String(args.text || '').trim().slice(0, 4000)
-      if (!text) return { ok: false, error: '缺少 text：先在你的 DSH 会话里写好推荐文案，再交给工具推送' }
+      if (!text) return { ok: false, error: '缺少 text：先在 DSH 会话里写好要发送的内容' }
+      const picks = Array.isArray(run?.picks) ? run.picks : []
       try {
         const result = await channels.send(
           channelId,
           {
             text,
             title: '🐟 大肥鱼推荐',
-            picks: run.picks,
+            picks,
             folder: null,
             mode: 'channel',
-            runId: run.id,
+            runId: run?.id || '',
           },
           options,
         )
@@ -1352,8 +1389,8 @@ export function apply(ctx) {
           message: result?.message || `已推送到 ${channel.label}`,
           channelId,
           channelLabel: result?.channel || channel.label,
-          runId: run.id,
-          count: run.picks.length,
+          runId: run?.id || '',
+          count: picks.length,
         }
       } catch (error) {
         return { ok: false, error: `推送失败：${errorMessage(error)}` }
@@ -1493,7 +1530,7 @@ export function apply(ctx) {
           log(`到达定时时间 ${config.autoRun.time}，但还没有记录到 DSH 会话；等下一次用户交互`)
           return
         }
-        const task = agentRecommendationTask()
+        const task = agentRecommendationTask(config.replyPrompt)
         void promptSession({ ctx, sessionId, text: task, log }).catch((error) => {
           log(`自动任务投递异常：${errorMessage(error)}`)
         })

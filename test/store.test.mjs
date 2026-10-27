@@ -25,6 +25,8 @@ test('defaults use 大肥鱼推荐 and safe limits', () => {
   assert.equal(config.deepRead, DEFAULT_CONFIG.deepRead)
   assert.equal(config.count, DEFAULT_CONFIG.count)
   assert.equal(config.readSubtitles, true)
+  assert.equal(config.replyPrompt, DEFAULT_CONFIG.replyPrompt)
+  assert.equal(config.qqInbound, true)
   assert.deepEqual(config.autoRun, { enabled: false, time: '12:30' })
 })
 
@@ -35,6 +37,7 @@ test('clamps user values instead of trusting the form', () => {
     count: 99,
     folderName: 'x'.repeat(30),
     deliveryMode: 'nope',
+    replyPrompt: 'x'.repeat(5000),
     channelId: 'x'.repeat(50),
     channelOptions: { qq: { target: 'y'.repeat(600), scope: 'group' } },
     autoRun: { enabled: true, time: '25:99' },

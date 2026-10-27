@@ -249,6 +249,8 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         scan: Number(config.scan) || 20,
         deepRead: Number(config.deepRead) || 8,
         count: Number(config.count) || 5,
+        replyPrompt: String(config.replyPrompt || ''),
+        qqInbound: config.qqInbound !== false,
         channelId: String(config.channelId || ''),
         channelOptions:
           config.channelOptions && typeof config.channelOptions === 'object'
@@ -266,6 +268,8 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         scan: form.scan,
         deepRead: form.deepRead,
         count: form.count,
+        replyPrompt: form.replyPrompt,
+        qqInbound: form.qqInbound !== false,
         channelId: form.channelId,
         channelOptions: form.channelOptions,
         readSubtitles: form.readSubtitles,
@@ -734,6 +738,24 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
             ),
           ),
         ),
+        h(
+          'div',
+          { 'data-bf-section': '' },
+          h('div', { 'data-bf-label': '' }, '回复提示词'),
+          h(
+            'div',
+            { 'data-bf-note': '' },
+            'agent 在 QQ 官方 bot 里回复时的风格和格式；留空使用默认的 QQ 聊天语气。',
+          ),
+          h('textarea', {
+            'data-bf-input': '',
+            rows: 5,
+            maxLength: 4000,
+            value: form.replyPrompt || '',
+            placeholder: '默认：你现在在QQ官方bot和用户对话，注意用语文明以及略微简短，像正常聊天，不要忘了称呼用户为主人，自称为本鲸',
+            onChange: (event) => update({ replyPrompt: event.target.value }),
+          }),
+        ),
         modeNeedsChannel
           ? h(
               'div',
@@ -889,6 +911,21 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                         )
                       : null,
                   ),
+              h(
+                'label',
+                { 'data-bf-inline': '' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: form.qqInbound !== false,
+                  onChange: (event) => update({ qqInbound: event.target.checked }),
+                }),
+                ' 把 QQ 收到的消息转到 DSH 会话',
+              ),
+              h(
+                'div',
+                { 'data-bf-note': '' },
+                '用户在 QQ 回消息时，agent 会在这个会话里接着回。',
+              ),
               h(
                 'div',
                 { 'data-bf-note': '' },
