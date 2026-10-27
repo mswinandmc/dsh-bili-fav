@@ -53,7 +53,7 @@ dsh plugin --profile web add /path/to/this/directory
 ## 第一次使用
 
 1. **登录 B站**：设置 → B站自主刷片 → 扫码登录。凭证落在 `<DSH_HOME>/bili-fav/credentials.json`（0600）。
-2. **配置 QQ**：在「QQ 渠道」里填腾讯 QQ 开放平台机器人的 **AppID / ClientSecret**；私聊 user_openid 可以手动填，也可以点「读取目标」让官方事件网关自动收集；留空用上次成功的私聊目标。
+2. **配置 QQ**：在「QQ 渠道」里选中 QQ，再填腾讯 QQ 开放平台机器人的 **AppID / ClientSecret**；私聊 user_openid 可以手动填，也可以点「读取目标」让官方事件网关自动收集；留空用上次成功的私聊目标。渠道选「未选择」时视为未配置。
 3. **调回复风格**：在「回复提示词」里写 agent 的 QQ 语气；留空使用默认的 QQ 聊天语气。
 4. **QQ 回消息**：保持「把 QQ 收到的消息转到 DSH 会话」开启，用户在 QQ 私聊回复时 agent 会接着回。
 5. **试运行**：点「试刷（不投递）」先看它挑什么；满意后点「让 agent 刷一轮」。
@@ -64,7 +64,7 @@ dsh plugin --profile web add /path/to/this/directory
 - **B站账号**：扫码登录/退出；显示当前登录用户。
 - **它怎么挑**：给模型的一句参考、候选数量、深读数量、最多挑几条。
 - **回复提示词**：agent 写 QQ 文案和回复 QQ 消息时的风格/格式，包括对用户的称呼和自称；留空使用默认的 QQ 聊天语气。
-- **QQ 渠道**：AppID、ClientSecret、私聊目标、手动 user_openid、msg_id，以及「把 QQ 收到的消息转到 DSH 会话」。
+- **QQ 渠道**：先选中 QQ，再填 AppID、ClientSecret、私聊目标、手动 user_openid、msg_id，以及「把 QQ 收到的消息转到 DSH 会话」。选「未选择（视为未配置）」时，QQ 推送和「让 agent 刷一轮」会关闭，试刷仍可用。
 - **自主唤醒**：作息窗口 + 每个窗口醒几次 + 最小唤醒间隔；到点用 sessionController.prompt 叫醒当前会话。
 - **运行/历史**：试刷、让 agent 刷一轮、停止、每轮记录和清单复制。
 
@@ -75,7 +75,7 @@ dsh plugin --profile web add /path/to/this/directory
 | 工具 | 用途 |
 |---|---|
 | `bili_fav_recommend` | 即时刷一轮，返回一条中性短草稿、picks、理由和配置的 `replyPrompt`；不收藏、不推送 |
-| `bili_fav_push` | 把 agent 自己写的 `text` 通过 QQ 官方 API 发出去；纯文本或推荐都行，`runId` 可选 |
+| `bili_fav_push` | 把 agent 自己写的 `text` 通过 QQ 官方 API 发出去；需要先在设置页选中渠道，未选择视为未配置；`runId` 可选 |
 | `bili_fav_last` | 只读最近一轮推荐（标题/链接/理由），用于回答“刚才推荐了什么/为什么” |
 | `bili_fav_preview` | 只预览一轮，不写收藏、不发送 |
 | `bili_fav_run` | 只收藏（不推送）；需要 B站登录 |
@@ -135,7 +135,7 @@ QQ 主动消息的配额、权限、目标 openid 都由腾讯官方 Bot 平台�
 要求 Node.js >= 22，零运行时/开发依赖。
 
 ```bash
-npm test            # 37 个单元测试
+npm test            # 39 个单元测试
 npm run check       # release preflight + 测试
 npm pack --dry-run  # 查看发布文件
 ```

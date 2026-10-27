@@ -99,6 +99,13 @@ test('legacy QQ group config migrates to private-only', () => {
   assert.equal(config.channelOptions.qq.tool, 'qq_send__legacy')
 })
 
+test('an explicitly unselected channel stays unconfigured', () => {
+  const unselected = sanitizeConfig({ deliveryMode: 'session', channelId: '' })
+  assert.equal(unselected.channelId, '')
+  const legacy = sanitizeConfig({ deliveryMode: 'session' })
+  assert.equal(legacy.channelId, 'session')
+})
+
 test('QQ targets stay private-only', () => {
   const config = sanitizeConfig({
     channelOptions: {

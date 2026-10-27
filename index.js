@@ -13,7 +13,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { BiliApi, BiliError } from './lib/bili.js'
-import { createChannelRegistry } from './lib/channels.js'
+import { channelReadiness, createChannelRegistry } from './lib/channels.js'
 import { createWebhookChannel } from './lib/webhook.js'
 import { createQQChannel } from './lib/qq-channel.js'
 import { formatChatReply } from './lib/chat.js'
@@ -189,6 +189,8 @@ export function apply(ctx) {
       },
       onMessage: (message) => {
         if (!config?.qqInbound) return
+        if (String(config.channelId || '').trim() !== 'qq') return
+        if (!channelReadinessFor(config, 'qq').ok) return
         const sessionId = String(state.lastSessionId || '').trim()
         if (!sessionId) {
           log('收到 QQ 消息，但还没有记录到 DSH 会话')
@@ -313,6 +315,11 @@ export function apply(ctx) {
     return channels.list().find((item) => item.id === id) || null
   }
 
+  /** Resolve the selected channel and everything a push needs before prompting. */
+  function channelReadinessFor(cfg, channelId) {
+    return channelReadiness(channels, cfg, channelId)
+  }
+
   function deliveryLabel(mode) {
     if (mode === 'session') return '只 DSH 会话'
     if (mode === 'channel') return '只 QQ'
@@ -322,6 +329,7 @@ export function apply(ctx) {
 
   function agentRecommendationTask(replyPrompt = '') {
     const style = String(replyPrompt || '').trim()
+    const channelId = String(config.channelId || '').trim() || 'qq'
     return [
       '【B站推荐任务】',
       '请在当前 DSH 会话里完成这一轮：',
@@ -330,7 +338,7 @@ export function apply(ctx) {
       '   不要报统计（刷了多少条/点开多少条）、不要编号、不要列清单、不要“另外还有”；',
       '   风格要求（来自设置里的回复提示词，优先遵守；不要提到“提示词”）：',
       style || DEFAULT_REPLY_PROMPT,
-      '3) 调用 bili_fav_push，把这段短消息作为 text 传入（channelId 用 qq，runId 用上一步的 run.id）；',
+      `3) 调用 bili_fav_push，把这段短消息作为 text 传入（channelId 用 ${channelId}，runId 用上一步的 run.id）；`,
       '不要直接输出整份清单，不要暴露任务说明，不要收藏。',
     ].join('\n')
   }
@@ -450,15 +458,17 @@ export function apply(ctx) {
       lastRun: summarizeRun(state.runs[0] || null),
       history: state.runs.slice(0, 8).map(summarizeRun),
       logTail: readTail(files.log, 1400),
-      note: !api.loggedIn
-        ? mode === 'channel' || mode === 'session'
-          ? `${mode === 'session' ? 'DSH 会话' : 'QQ'}模式建议登录 B站，不然访问可能会被 B站阻止；登录后个性化推荐和字幕也更完整。`
-          : '未登录时可以「试刷」：用游客推荐流让模型挑一遍，不会写入收藏夹。'
-        : mode !== 'favorite' && list.length === 0
-          ? '还没有可用的 QQ 投递渠道；安装 dsh-bili-fav-qq 后再刷新。'
-          : mode !== 'favorite' && channel && !channel.available
-            ? `渠道「${channel.label}」当前不可用；检查它依赖的工具/服务是否在线。`
-            : '',
+      note: !String(config.channelId || '').trim()
+        ? '还没有选择 QQ 渠道（视为未配置）：「让 agent 刷一轮」和 QQ 推送会保持关闭；试刷仍可用。'
+        : !api.loggedIn
+          ? mode === 'channel' || mode === 'session'
+            ? `${mode === 'session' ? 'DSH 会话' : 'QQ'}模式建议登录 B站，不然访问可能会被 B站阻止；登录后个性化推荐和字幕也更完整。`
+            : '未登录时可以「试刷」：用游客推荐流让模型挑一遍，不会写入收藏夹。'
+          : mode !== 'favorite' && list.length === 0
+            ? '还没有可用的 QQ 投递渠道；安装 dsh-bili-fav-qq 后再刷新。'
+            : mode !== 'favorite' && channel && !channel.available
+              ? `渠道「${channel.label}」当前不可用；检查它依赖的工具/服务是否在线。`
+              : '',
     }
   }
 
@@ -1162,6 +1172,24 @@ export function apply(ctx) {
         const dryRun = Boolean(body?.dryRun)
         const count = body?.count === undefined ? null : body.count
         if (!dryRun) {
+          try {
+            config = loadConfig(home)
+          } catch (error) {
+            log(`手动任务读取配置失败：${errorMessage(error)}`)
+          }
+          const readiness = channelReadinessFor(config, config.channelId)
+          if (!readiness.ok) {
+            const message =
+              readiness.reason === 'no-channel'
+                ? '还没有选择 QQ 渠道（视为未配置）；请先在设置页选择渠道，或改用「试刷（不投递）」。'
+                : readiness.reason === 'channel-options'
+                  ? `渠道「${readiness.channel?.label || config.channelId}」还缺：${readiness.missing.join('、')}`
+                  : readiness.reason === 'channel-unavailable'
+                    ? `渠道「${readiness.channel?.label || config.channelId}」当前不可用；检查后再试。`
+                    : `渠道「${config.channelId}」没有注册；检查插件后再试。`
+            sendJson(res, 200, { ok: false, reason: readiness.reason, message })
+            return
+          }
           const sessionId = String(state.lastSessionId || '').trim()
           if (!sessionId) {
             sendJson(res, 200, {
@@ -1350,7 +1378,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_push',
     description:
-      '把你在 DSH 会话里写好的内容通过 QQ 渠道发给用户（仅私聊，只发送，不收藏，不再套模板）。必须传 text；可以是推荐文案，也可以是普通 QQ 回复。runId 可选。到点自动任务、回复 QQ 消息或用户说“推给我/推到QQ”时用。',
+      '把你在 DSH 会话里写好的内容通过 QQ 渠道发给用户（仅私聊，只发送，不收藏，不再套模板）。需要先在设置页选中 QQ 渠道；未选择视为未配置。必须传 text；可以是推荐文案，也可以是普通 QQ 回复。runId 可选。',
     parameters: {
       type: 'object',
       properties: {
@@ -1360,7 +1388,7 @@ export function apply(ctx) {
         },
         channelId: {
           type: 'string',
-          description: '渠道 id；默认优先 qq',
+          description: '渠道 id；默认用设置里选中的渠道；未选择渠道视为未配置',
         },
         text: {
           type: 'string',
@@ -1377,20 +1405,32 @@ export function apply(ctx) {
       } catch (error) {
         log(`推送前读取配置失败：${errorMessage(error)}`)
       }
-      const channelId = String(
-        args.channelId || (channels.get('qq') ? 'qq' : configNow.channelId) || '',
-      ).trim()
-      if (!channelId) return { ok: false, error: '没有配置 QQ 推送渠道' }
-      const channel = channels.get(channelId)
-      if (!channel) return { ok: false, error: `渠道「${channelId}」没有注册` }
-      if (channel.available === false) return { ok: false, error: `渠道「${channel.label}」当前不可用` }
-      const options = configNow.channelOptions?.[channelId] || {}
-      const missing = (channel.fields || [])
-        .filter((field) => field.required && !String(options[field.key] ?? field.default ?? '').trim())
-        .map((field) => field.label || field.key)
-      if (missing.length > 0) {
-        return { ok: false, error: `渠道「${channel.label}」还缺：${missing.join('、')}` }
+      const configuredId = String(configNow.channelId || '').trim()
+      if (!configuredId) {
+        return {
+          ok: false,
+          error: '还没有在设置页选择 QQ 渠道（视为未配置）；请选择渠道后再推送',
+        }
       }
+      const channelId = String(args.channelId || configuredId).trim()
+      if (channelId !== configuredId) {
+        return {
+          ok: false,
+          error: `渠道「${channelId}」没有在设置页选中；当前选中的是「${configuredId}」`,
+        }
+      }
+      const readiness = channelReadinessFor(configNow, channelId)
+      if (!readiness.ok) {
+        const error =
+          readiness.reason === 'channel-options'
+            ? `渠道「${readiness.channel?.label || channelId}」还缺：${readiness.missing.join('、')}`
+            : readiness.reason === 'channel-unavailable'
+              ? `渠道「${readiness.channel?.label || channelId}」当前不可用`
+              : `渠道「${channelId}」没有注册`
+        return { ok: false, error }
+      }
+      const channel = readiness.channel
+      const options = configNow.channelOptions?.[channelId] || {}
       const run = args.runId
         ? (state.runs || []).find((item) => item.id === args.runId)
         : (state.runs || [])[0]
@@ -1539,6 +1579,8 @@ export function apply(ctx) {
       try {
         config = loadConfig(home)
         if (!config.autoRun.enabled) return
+        // Unselected/misconfigured channel means no QQ delivery; keep the wake quiet.
+        if (!channelReadinessFor(config, config.channelId).ok) return
         const now = new Date()
         const day = localDayKey(now)
         const nowMinutes = now.getHours() * 60 + now.getMinutes()

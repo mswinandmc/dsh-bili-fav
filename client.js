@@ -802,7 +802,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                           value: form.channelId,
                           onChange: (event) => update({ channelId: event.target.value }),
                         },
-                        h('option', { value: '' }, '未选择'),
+                        h('option', { value: '' }, '未选择（视为未配置）'),
                         externalChannels.map((item) =>
                           h(
                             'option',
@@ -1364,7 +1364,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
       const qrVisible = Boolean(qr)
       const channels = Array.isArray(status?.channels) ? status.channels : []
       const externalChannels = channels.filter((item) => item.id === 'qq')
-      const selectedChannel = externalChannels.find((item) => item.id === (form?.channelId || 'qq')) || externalChannels[0] || null
+      const selectedChannel = externalChannels.find((item) => item.id === form?.channelId) || null
       const channelOptions = form?.channelOptions?.qq || {}
       const channelReady = Boolean(
         selectedChannel &&
@@ -1488,7 +1488,9 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                   h(
                     'div',
                     { 'data-bf-hint': '' },
-                    `QQ 推送：建议登录 B站，不然访问可能会被 B站阻止${channelReady ? '' : ' · 请先在 QQ 渠道填好必填项'}`,
+                    form?.channelId
+                      ? `QQ 推送：建议登录 B站，不然访问可能会被 B站阻止${channelReady ? '' : ' · 请先在 QQ 渠道填好必填项'}`
+                      : 'QQ 推送：未选择渠道，视为未配置；「让 agent 刷一轮」已关闭，试刷仍可用。',
                   ),
                 ),
                 h(
@@ -1496,7 +1498,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                   { 'data-bf-note': '' },
                   `这一轮会扫 ${form?.scan ?? 20} 条候选，模型最多点开 ${
                     form?.deepRead ?? 8
-                  } 条读内容，最后最多挑 ${form?.count ?? 5} 条。推送：QQ · 渠道：${selectedChannel?.label || '未选'}。判断用当前默认模型，会消耗 token。`,
+                  } 条读内容，最后最多挑 ${form?.count ?? 5} 条。推送：${selectedChannel ? 'QQ' : '未配置'} · 渠道：${selectedChannel?.label || '未选'}。判断用当前默认模型，会消耗 token。`,
                 ),
                 status?.note ? h('div', { 'data-bf-msg': '' }, status.note) : null,
                 h(Notice, { notice }),

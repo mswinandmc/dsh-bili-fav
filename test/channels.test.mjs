@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createChannelRegistry } from '../lib/channels.js'
+import { channelReadiness, createChannelRegistry } from '../lib/channels.js'
 
 test('channel registry registers, serializes, dispatches, and unregisters', async () => {
   const registry = createChannelRegistry()
@@ -48,6 +48,41 @@ test('channel registry registers, serializes, dispatches, and unregisters', asyn
 
   disposer()
   assert.equal(registry.list().length, 0)
+})
+
+test('channel readiness treats an unselected channel as unconfigured', () => {
+  const registry = createChannelRegistry()
+  registry.register({
+    id: 'qq',
+    label: 'QQ',
+    fields: [{ key: 'appId', label: 'AppID', required: true }],
+    async send() {
+      return { ok: true }
+    },
+  })
+  registry.register({
+    id: 'off',
+    label: 'Off',
+    available: () => false,
+    async send() {
+      return { ok: true }
+    },
+  })
+
+  const unselected = channelReadiness(registry, { channelOptions: { qq: { appId: 'a' } } }, '')
+  assert.equal(unselected.ok, false)
+  assert.equal(unselected.reason, 'no-channel')
+
+  assert.equal(channelReadiness(registry, {}, 'missing').reason, 'unknown-channel')
+  assert.equal(channelReadiness(registry, {}, 'off').reason, 'channel-unavailable')
+
+  const missing = channelReadiness(registry, { channelOptions: {} }, 'qq')
+  assert.equal(missing.reason, 'channel-options')
+  assert.deepEqual(missing.missing, ['AppID'])
+
+  const ready = channelReadiness(registry, { channelOptions: { qq: { appId: 'a' } } }, 'qq')
+  assert.equal(ready.ok, true)
+  assert.equal(ready.channel.id, 'qq')
 })
 
 test('channel registry rejects an unavailable channel', async () => {
