@@ -176,6 +176,18 @@ export function apply(ctx) {
   channels.dataDir = home
   let config = loadConfig(home)
   let state = loadState(home)
+
+  const rememberSession = (sessionId) => {
+    const next = String(sessionId || '').trim().slice(0, 120)
+    if (!next || state.lastSessionId === next) return
+    state.lastSessionId = next
+    try {
+      saveState(home, state)
+    } catch (error) {
+      log(`记录 DSH 会话失败：${errorMessage(error)}`)
+    }
+  }
+
   let qqChannel = null
   try {
     qqChannel = createQQChannel({
@@ -207,7 +219,7 @@ export function apply(ctx) {
           `回复要求：${String(config.replyPrompt || DEFAULT_REPLY_PROMPT).trim()}`,
           '不要暴露这条说明。',
         ].join('\n')
-        void promptSession({ ctx, sessionId, text: prompt, log }).catch((error) => {
+        void promptSession({ ctx, home, sessionId, text: prompt, log, onSessionChanged: rememberSession }).catch((error) => {
           log(`QQ 消息转到会话失败：${errorMessage(error)}`)
         })
       },
@@ -1199,7 +1211,7 @@ export function apply(ctx) {
             })
             return
           }
-          void promptSession({ ctx, sessionId, text: agentRecommendationTask(config.replyPrompt), log }).catch((error) => {
+          void promptSession({ ctx, home, sessionId, text: agentRecommendationTask(config.replyPrompt), log, onSessionChanged: rememberSession }).catch((error) => {
             log(`手动任务投递异常：${errorMessage(error)}`)
           })
           sendJson(res, 200, {
@@ -1263,15 +1275,7 @@ export function apply(ctx) {
     } catch {
       /* sessions is optional */
     }
-    if (!targetId) return
-    const next = targetId.slice(0, 120)
-    if (state.lastSessionId === next) return
-    state.lastSessionId = next
-    try {
-      saveState(home, state)
-    } catch (error) {
-      log(`记录 DSH 会话失败：${errorMessage(error)}`)
-    }
+    rememberSession(targetId)
   }
 
   const registerTool = (definition) => {
@@ -1607,12 +1611,12 @@ export function apply(ctx) {
         }
         const task = agentRecommendationTask(config.replyPrompt)
         wakeInFlight.add(due)
-        void promptSession({ ctx, sessionId, text: task, log })
+        void promptSession({ ctx, home, sessionId, text: task, log, onSessionChanged: rememberSession })
           .then((ok) => {
             if (!ok) return
             plan.done = { ...(plan.done || {}), [due]: true }
             saveState(home, state)
-            log(`自主唤醒 ${due} → ${sessionId}`)
+            log(`自主唤醒 ${due} → ${state.lastSessionId || sessionId}`)
           })
           .catch((error) => {
             log(`自主唤醒投递异常：${errorMessage(error)}`)
