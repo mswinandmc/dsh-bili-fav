@@ -27,7 +27,7 @@
 
 ## 投递方式
 
-核心负责刷推荐流、模型挑片、写 B站收藏夹；**自动推荐由 DSH 会话里的 agent 思考后调用工具完成**：agent 先刷一轮，再调 `bili_fav_push` 推到 QQ。QQ/Webhook 是可选的独立渠道；手动运行仍可在设置里选投递方式：
+核心负责刷推荐流、模型挑片、写 B站收藏夹；**自动推荐由 DSH 会话里的 agent 思考后调用工具完成**：agent 先刷一轮，再调 `bili_fav_push` 推到 QQ。QQ/Webhook 是可选的独立渠道。设置页不再提供「投递方式」选项：手动运行按 `config.json` 里的 `deliveryMode` 执行，可取值如下：
 
 | 模式 | 做什么 | 需要 |
 |---|---|---|
@@ -57,7 +57,7 @@
 
 核心自带一个 **Webhook** 渠道，完全不需要安装 QQ Bot 插件：
 
-1. 设置 → 偏好 → 投递方式选 **只 QQ**（或 **都要**）；点「让 agent 刷一轮」会把任务交给 DSH 会话，agent 自己刷、自己写文案、调 `bili_fav_push` 推 QQ；
+1. 把 `config.json` 的 `deliveryMode` 设成 `channel` 或 `both`；点「让 agent 刷一轮」会把任务交给 DSH 会话，agent 自己刷、自己写文案、调 `bili_fav_push` 推 QQ；
 2. 渠道选 **Webhook**；
 3. 填 URL，必要时填 `Authorization`（原样放进请求头），选 JSON / 纯文本；
 4. 点 **测试发送** 联调。

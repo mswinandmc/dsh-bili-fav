@@ -249,15 +249,11 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         scan: Number(config.scan) || 20,
         deepRead: Number(config.deepRead) || 8,
         count: Number(config.count) || 5,
-        deliveryMode: ['favorite', 'channel', 'both', 'session'].includes(config.deliveryMode)
-          ? config.deliveryMode
-          : 'favorite',
         channelId: String(config.channelId || ''),
         channelOptions:
           config.channelOptions && typeof config.channelOptions === 'object'
             ? config.channelOptions
             : {},
-        folderName: String(config.folderName || '大肥鱼推荐'),
         readSubtitles: config.readSubtitles !== false,
         autoEnabled: Boolean(config.autoRun && config.autoRun.enabled),
         autoTime: String((config.autoRun && config.autoRun.time) || '12:30'),
@@ -270,10 +266,8 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         scan: form.scan,
         deepRead: form.deepRead,
         count: form.count,
-        deliveryMode: form.deliveryMode,
         channelId: form.channelId,
         channelOptions: form.channelOptions,
-        folderName: form.folderName,
         readSubtitles: form.readSubtitles,
         autoRun: { enabled: form.autoEnabled, time: form.autoTime },
       }
@@ -421,9 +415,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
           { 'data-bf-meta': '' },
           `扫了 ${run.scanned || 0} 条 · 点开 ${run.watched || 0} 条${
             run.subtitleVideos ? `（${run.subtitleVideos} 条有字幕）` : ''
-          } · ${run.dryRun ? '想挑' : '挑了'} ${picks.length} 条${
-            run.folder ? ` · 「${run.folder}」` : ''
-          }`,
+          } · ${run.dryRun ? '想挑' : '挑了'} ${picks.length} 条`,
         ),
         run.delivery !== 'favorite' && !run.dryRun
           ? h(
@@ -496,7 +488,6 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
     }) {
       const loggedIn = status?.login?.state === 'logged-in'
       const user = status?.login?.user
-      const folder = status?.folder
       if (!loggedIn) {
         return h(
           'div',
@@ -508,7 +499,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
               'div',
               { 'data-bf-col': '', 'data-bf-grow': '' },
               h('div', { 'data-bf-label': '' }, 'B站账号'),
-              h('div', { 'data-bf-note': '' }, '还没有登录。登录后，推荐流才会是「你的」推荐流，也才能写入收藏夹。'),
+              h('div', { 'data-bf-note': '' }, '还没有登录。登录后推荐流才会是「你的」推荐流；字幕和个性化推荐也需要登录。'),
             ),
             h(
               'button',
@@ -613,19 +604,6 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
             confirmLogout ? '再点一次确认退出' : '退出登录',
           ),
         ),
-        h(
-          'div',
-          { 'data-bf-row': '' },
-          h('div', { 'data-bf-note': '', 'data-bf-grow': '' }, `目标收藏夹：${folder?.name || '未设置'}`),
-          folder?.link
-            ? h(
-                'a',
-                { href: folder.link, target: '_blank', rel: 'noreferrer noopener', 'data-bf-btn': '' },
-                '打开收藏夹',
-              )
-            : null,
-          h('div', { 'data-bf-hint': '' }, folder?.id ? '已就绪' : '第一次刷时会自动创建（公开）'),
-        ),
       )
     }
 
@@ -633,10 +611,8 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
       status,
       form,
       setForm,
-      folders,
       busy,
       save,
-      loadFolders,
       notice,
       channelMessage,
       listChannelTargets,
@@ -644,10 +620,8 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
     }) {
       if (!form) return null
       const update = (patch) => setForm((current) => ({ ...current, ...patch }))
-      const folderNames = Array.isArray(folders) ? folders.map((item) => item.title) : []
       const channels = Array.isArray(status?.channels) ? status.channels : []
-      const externalChannels = channels.filter((item) => item.id !== 'session')
-      const sessionChannel = channels.find((item) => item.id === 'session') || null
+      const externalChannels = channels.filter((item) => item.id === 'qq')
       const selectedChannel = externalChannels.find((item) => item.id === form.channelId) || null
       const channelOptions = (form.channelOptions && form.channelOptions[form.channelId]) || {}
       const setChannelOption = (key, value) => {
@@ -661,16 +635,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
           },
         })
       }
-      const modeNeedsFavorite = form.deliveryMode === 'favorite' || form.deliveryMode === 'both'
-      const modeNeedsChannel = form.deliveryMode === 'channel' || form.deliveryMode === 'both'
-      const modeNeedsSession = form.deliveryMode === 'session'
-      const MODES = [
-        ['session', '只 DSH 会话', '固定一个 DSH 会话，跨轮持续聊推荐；不推 QQ、不写收藏夹。'],
-        ['favorite', '只收藏', '挑中的视频写进 B站收藏夹；不使用 QQ。'],
-        ['channel', '只 QQ', '把推荐清单交给 QQ 渠道；不写收藏夹。B站未登录也能用游客推荐流。'],
-        ['both', '两者都要', '收藏夹和 QQ 都走；任意一路失败会标在记录里。'],
-      ]
-      const modeDescription = (MODES.find(([value]) => value === form.deliveryMode) || MODES[0])[2]
+      const modeNeedsChannel = true
       return h(
         React.Fragment,
         null,
@@ -769,117 +734,6 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
             ),
           ),
         ),
-        h(
-          'div',
-          { 'data-bf-section': '' },
-          h('div', { 'data-bf-label': '' }, '投递方式'),
-          h(
-            'div',
-            { 'data-bf-note': '' },
-            '挑完视频后怎么处理：只写 B站收藏夹、只在一个固定 DSH 会话里持续聊、只交给 QQ，或者收藏+QQ。默认是 DSH 会话。',
-          ),
-          h(
-            'div',
-            { 'data-bf-chiprow': '', role: 'group', 'aria-label': '投递方式' },
-            MODES.map(([value, label]) =>
-              h(
-                'button',
-                {
-                  key: value,
-                  type: 'button',
-                  'data-bf-chip': '',
-                  'aria-pressed': form.deliveryMode === value ? 'true' : 'false',
-                  onClick: () =>
-                    update({
-                      deliveryMode: value,
-                      ...(value === 'session'
-                        ? { channelId: 'session' }
-                        : form.channelId === 'session'
-                          ? { channelId: '' }
-                          : {}),
-                    }),
-                },
-                label,
-              ),
-            ),
-          ),
-          h('div', { 'data-bf-note': '' }, modeDescription),
-        ),
-        h(
-          'div',
-          { 'data-bf-section': '' },
-          h('div', { 'data-bf-label': '' }, '收藏到哪个收藏夹'),
-          !modeNeedsFavorite
-            ? h('div', { 'data-bf-note': '', 'data-bf-warn': '' }, `当前是「${deliveryLabel(form.deliveryMode)}」，下面的收藏夹设置不会使用。`)
-            : null,
-          h('input', {
-            'data-bf-input': '',
-            value: form.folderName,
-            maxLength: 20,
-            placeholder: '大肥鱼推荐',
-            onChange: (event) => update({ folderName: event.target.value }),
-          }),
-          h(
-            'div',
-            { 'data-bf-note': '' },
-            '填写收藏夹名字：已有同名收藏夹就放进去；没有就自动创建一个公开收藏夹（可以在 B站里改成私密）。最多 20 个字。',
-          ),
-          status?.login?.state === 'logged-in'
-            ? h(
-                React.Fragment,
-                null,
-                h(
-                  'div',
-                  { 'data-bf-row': '' },
-                  h('div', { 'data-bf-hint': '', 'data-bf-grow': '' }, '从我的收藏夹里选：'),
-                  h(
-                    'button',
-                    { type: 'button', 'data-bf-btn': '', disabled: Boolean(busy), onClick: loadFolders },
-                    busy === 'folders' ? '读取中…' : '重新读取',
-                  ),
-                ),
-                folderNames.length
-                  ? h(
-                      'div',
-                      { 'data-bf-chiprow': '' },
-                      folderNames.slice(0, 16).map((name) =>
-                        h(
-                          'button',
-                          {
-                            key: name,
-                            type: 'button',
-                            'data-bf-chip': '',
-                            'aria-pressed': form.folderName === name ? 'true' : 'false',
-                            onClick: () => update({ folderName: name }),
-                          },
-                          name,
-                        ),
-                      ),
-                    )
-                  : h('div', { 'data-bf-note': '' }, '还没有读到收藏夹，点「重新读取」试试。'),
-              )
-            : h('div', { 'data-bf-note': '' }, '登录后才能读取已有收藏夹；现在也可以直接填名字。'),
-        ),
-        modeNeedsSession
-          ? h(
-              'div',
-              { 'data-bf-section': '' },
-              h('div', { 'data-bf-label': '' }, 'DSH 会话'),
-              h(
-                'div',
-                { 'data-bf-note': '' },
-                '固定使用同一个 DSH 会话，跨轮持续聊推荐；不推送 QQ，也不写收藏夹。',
-              ),
-              h(
-                'div',
-                { 'data-bf-note': '' },
-                `会话：${form.channelOptions?.session?.title || '大肥鱼推荐'}（${form.channelOptions?.session?.sessionId || '默认'}）`,
-              ),
-              sessionChannel?.available === false
-                ? h('div', { 'data-bf-note': '', 'data-bf-warn': '' }, '会话服务不可用；检查宿主 sessionController。')
-                : null,
-            )
-          : null,
         modeNeedsChannel
           ? h(
               'div',
@@ -1038,7 +892,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
               h(
                 'div',
                 { 'data-bf-note': '' },
-                'QQ 渠道由独立适配器 dsh-bili-fav-qq 注册；Webhook 是核心内置渠道。',
+                '最终推送走 QQ 官方 API（dsh-bili-fav-qq）。',
               ),
             )
           : null,
@@ -1098,7 +952,6 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                 }),
               )
             : null,
-          h('div', { 'data-bf-note': '' }, '收藏夹不会公开你的账号信息；视频是否可见由收藏夹的公开/私密设置决定。'),
         ),
         h(
           'div',
@@ -1147,7 +1000,6 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
       const [busy, setBusy] = useState('')
       const [notice, setNotice] = useState(null)
       const [qr, setQr] = useState(null)
-      const [folders, setFolders] = useState(null)
       const [form, setForm] = useState(null)
       const [tab, setTab] = useState('run')
       const [expandedRun, setExpandedRun] = useState(null)
@@ -1239,12 +1091,6 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         return () => clearTimeout(timer)
       }, [confirmLogout])
 
-      useEffect(() => {
-        if (status?.login?.state !== 'logged-in' || folders !== null) return
-        loadFolders()
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [status?.login?.state])
-
       async function startLogin() {
         setBusy('login')
         setNotice(null)
@@ -1268,26 +1114,11 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         setConfirmLogout(false)
         try {
           await jpost('/logout')
-          setFolders(null)
           setQr(null)
           setNotice({ tone: 'ok', text: '已退出登录，本地凭证已删除' })
           await refresh()
         } catch (logoutError) {
           setNotice({ tone: 'error', text: logoutError.message || '退出失败' })
-        } finally {
-          setBusy('')
-        }
-      }
-
-      async function loadFolders() {
-        if (status?.login?.state !== 'logged-in') return
-        setBusy('folders')
-        try {
-          const result = await jget('/folders')
-          setFolders(Array.isArray(result.folders) ? result.folders : [])
-        } catch (folderError) {
-          setNotice({ tone: 'error', text: folderError.message || '读取收藏夹失败' })
-          setFolders([])
         } finally {
           setBusy('')
         }
@@ -1414,27 +1245,19 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
       const latestRun = status?.lastRun || null
       const loggedIn = status?.login?.state === 'logged-in'
       const qrVisible = Boolean(qr)
-      const deliveryMode = form?.deliveryMode || status?.config?.deliveryMode || 'session'
-      const needsLogin = deliveryMode === 'favorite' || deliveryMode === 'both'
-      const needsChannel = deliveryMode === 'channel' || deliveryMode === 'both'
-      const needsSession = deliveryMode === 'session'
       const channels = Array.isArray(status?.channels) ? status.channels : []
-      const externalChannels = channels.filter((item) => item.id !== 'session')
-      const selectedChannel = externalChannels.find((item) => item.id === form?.channelId) || null
-      const sessionChannel = channels.find((item) => item.id === 'session') || null
-      const sessionReady = !needsSession || Boolean(sessionChannel?.available)
-      const channelOptions = form?.channelOptions?.[form?.channelId] || {}
-      const channelReady =
-        !needsChannel ||
-        Boolean(
-          selectedChannel &&
-            selectedChannel.available !== false &&
-            (selectedChannel.fields || []).every(
-              (field) =>
-                !field.required ||
-                String(channelOptions[field.key] ?? field.default ?? '').trim() !== '',
-            ),
-        )
+      const externalChannels = channels.filter((item) => item.id === 'qq')
+      const selectedChannel = externalChannels.find((item) => item.id === (form?.channelId || 'qq')) || externalChannels[0] || null
+      const channelOptions = form?.channelOptions?.qq || {}
+      const channelReady = Boolean(
+        selectedChannel &&
+          selectedChannel.available !== false &&
+          (selectedChannel.fields || []).every(
+            (field) =>
+              !field.required ||
+              String(channelOptions[field.key] ?? field.default ?? '').trim() !== '',
+          ),
+      )
 
       if (error && !status) {
         return h(
@@ -1471,7 +1294,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
           h(
             'div',
             { 'data-bf-sub': '' },
-            '用你的 B站账号刷推荐流：模型自己点开视频、读字幕，再按它自己的品味挑片，收藏到你指定的收藏夹。',
+            '用你的 B站账号刷推荐流：agent 自己点开视频、读字幕、挑片写理由，然后调工具把「今天的鱼」推到 QQ。',
           ),
         ),
         h(Account, {
@@ -1522,9 +1345,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                       disabled:
                         Boolean(running) ||
                         Boolean(busy) ||
-                        (needsLogin && !loggedIn) ||
-                        (needsChannel && !channelReady) ||
-                        (needsSession && !sessionReady),
+                        !channelReady,
                       onClick: () => startRun(false),
                     },
                     busy === 'run' ? '正在开始…' : '让 agent 刷一轮',
@@ -1550,11 +1371,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                   h(
                     'div',
                     { 'data-bf-hint': '' },
-                    needsSession
-                      ? `只 DSH 会话：不推 QQ，不需要 B站登录${sessionReady ? '' : ' · 会话服务不可用'}`
-                      : `${needsLogin ? (loggedIn ? '登录状态：正常' : '未登录：收藏需要登录') : '只 QQ：不需要 B站登录'}${
-                          needsChannel && !channelReady ? ' · 请先选好 QQ 渠道并填必填项' : ''
-                        }`,
+                    `QQ 推送：不需要 B站登录${channelReady ? '' : ' · 请先在 QQ 渠道填好必填项'}`,
                   ),
                 ),
                 h(
@@ -1562,9 +1379,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                   { 'data-bf-note': '' },
                   `这一轮会扫 ${form?.scan ?? 20} 条候选，模型最多点开 ${
                     form?.deepRead ?? 8
-                  } 条读内容，最后最多挑 ${form?.count ?? 5} 条。当前投递：${deliveryLabel(
-                    deliveryMode,
-                  )}${needsChannel ? ` · 渠道：${selectedChannel?.label || '未选'}` : ''}。判断用当前默认模型，会消耗 token。`,
+                  } 条读内容，最后最多挑 ${form?.count ?? 5} 条。推送：QQ · 渠道：${selectedChannel?.label || '未选'}。判断用当前默认模型，会消耗 token。`,
                 ),
                 status?.note ? h('div', { 'data-bf-msg': '' }, status.note) : null,
                 h(Notice, { notice }),
@@ -1610,10 +1425,8 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                 formTouched.current = true
                 setForm(updater)
               },
-              folders,
               busy,
               save: savePreferences,
-              loadFolders,
               notice,
               channelMessage,
               listChannelTargets,
