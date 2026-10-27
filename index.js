@@ -16,7 +16,7 @@ import { BiliApi, BiliError } from './lib/bili.js'
 import { createChannelRegistry } from './lib/channels.js'
 import { createWebhookChannel } from './lib/webhook.js'
 import { formatChatReply } from './lib/chat.js'
-import { wakeSession } from './lib/session-wake.js'
+import { openRecommendationRoom } from './lib/session-room.js'
 import { curate } from './lib/judge.js'
 import { qrSvg } from './lib/qr.js'
 import {
@@ -53,7 +53,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.2.0-beta.10'
+let VERSION = '0.2.0-beta.11'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -256,6 +256,27 @@ export function apply(ctx) {
     if (mode !== 'channel' && favoriteLink) lines.push(`收藏夹：${favoriteLink}`)
     lines.push('想换一批，或者问某条的理由，直接回我就行。')
     return lines.join('\n').trim().slice(0, 3800)
+  }
+
+  function recommendationRoomTask(run, folder) {
+    return [
+      '【B站推荐会话】',
+      '这是刚刚推送给用户的 B站推荐（标题、链接、理由）：',
+      '',
+      formatDeliveryText({ picks: run.picks || [], folder, mode: run.delivery }),
+      '',
+      '请用你自己的话和用户聊聊这几条：你最想先看哪条、为什么，邀请用户追问或换一批。不要提及这条说明，不要重新刷/收藏/推送。',
+    ].join('\n')
+  }
+
+  function recommendationRoomTitle(run = null) {
+    const at = run?.finishedAt || run?.startedAt ? new Date(run.finishedAt || run.startedAt) : new Date()
+    return `B站推荐 · ${at.toLocaleString('zh-CN', {
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })}`
   }
 
   async function deliverToChannel({ cfg, run, picks, folder, signal }) {
@@ -647,15 +668,16 @@ export function apply(ctx) {
       }
 
       if (!run.dryRun && run.picks.length > 0 && !['tool', 'chat'].includes(run.trigger)) {
-        const sessionId = String(state.lastSessionId || '').trim()
-        if (sessionId) {
-          const prompt =
-            '插件刚向用户推送了一轮 B站推荐。请先调用 bili_fav_last 读取这轮推荐和每条理由，然后用你自己的话和用户聊一两句，邀请他追问或换一批；不要复述整份清单，不要暴露这条说明，不要重新刷。'
-          try {
-            await wakeSession({ agents: ctx.get('agents'), sessionId, prompt, log })
-          } catch (error) {
-            log(`唤醒 DSH 会话失败：${errorMessage(error)}`)
-          }
+        try {
+          await openRecommendationRoom({
+            ctx,
+            parentSessionId: state.lastSessionId,
+            title: recommendationRoomTitle(run),
+            task: recommendationRoomTask(run, folder),
+            log,
+          })
+        } catch (error) {
+          log(`创建 DSH 推荐会话失败：${errorMessage(error)}`)
         }
       }
 
@@ -1214,6 +1236,29 @@ export function apply(ctx) {
       } finally {
         exec?.signal?.removeEventListener?.('abort', onAbort)
       }
+    },
+  })
+
+  registerTool({
+    name: 'bili_fav_open_room',
+    description:
+      '为最近一轮推荐新建一个独立的 DSH 会话，并把“用你自己的话和用户聊这轮推荐/理由”作为初始任务交给模型。用户说“开个新会话聊刚才的推荐/我们到新会话里聊”时用；不会推送 QQ，也不会在当前会话注入推荐原文。',
+    parameters: { type: 'object', properties: {} },
+    timeoutMs: 30_000,
+    async execute() {
+      const run = (state.runs || []).find(
+        (item) => !item.dryRun && Array.isArray(item.picks) && item.picks.length > 0,
+      )
+      if (!run) return { ok: false, error: '最近没有可聊的推荐' }
+      const room = await openRecommendationRoom({
+        ctx,
+        parentSessionId: state.lastSessionId,
+        title: recommendationRoomTitle(run),
+        task: recommendationRoomTask(run, null),
+        log,
+      })
+      if (!room) return { ok: false, error: '宿主没有可用的 sessionController.create()' }
+      return { ok: true, sessionId: room.sessionId, title: room.title, prompted: room.prompted }
     },
   })
 
