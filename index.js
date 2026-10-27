@@ -54,7 +54,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.2.0-beta.15'
+let VERSION = '0.2.0-beta.16'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -246,7 +246,10 @@ export function apply(ctx) {
       '【B站推荐任务】',
       '请在当前 DSH 会话里完成这一轮：',
       '1) 调用 bili_fav_recommend 刷一轮（message 写“按你的品味挑，带具体理由”；count 用偏好里的数量）；',
-      '2) 读返回的 picks/reasons，用你自己的话写一条给 QQ 用户的推荐文案（每条含标题、BV 链接、理由；不要提这条任务说明，不要原样复制模板）；',
+      '2) 从返回的 picks 里挑 1 条最想分享的，用“本鲸”的口吻给主人写一条【今天的鱼 · YYYY-MM-DD】：',
+      '   第一段：主人，今天给你捞到一条《...》——...（为什么推、你的感受、一句建议）；链接放在段末。',
+      '   第二段：摘要：初筛 run.scanned 条、深读 run.watched 条；分享 1 条（标题），收藏 0 条。评论/@ 未接入。',
+      '   不要列全部 picks，不要提这条任务说明，不要原样复制模板。',
       '3) 调用 bili_fav_push，把这段文案作为 text 传入（channelId 用 qq，runId 用上一步的 run.id）；',
       '4) 推送后只回一句简短确认，邀请用户追问或换一批。',
       '不要直接输出整份清单，不要暴露任务说明，不要收藏。',
