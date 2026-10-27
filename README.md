@@ -108,34 +108,6 @@ QQ 主动消息的配额、权限、目标 openid 都由腾讯官方 Bot 平台�
 
 建议先手动「让 agent 刷一轮」试一次，再打开自主唤醒。
 
-## 数据与安全
-
-`<DSH_HOME>/bili-fav/`：
-
-| 文件 | 内容 |
-|---|---|
-| `config.json` | 偏好、回复提示词、QQ/渠道 options、自动刷时间（0600） |
-| `credentials.json` | B站 Cookie（0600） |
-| `state.json` | 最近运行、去重、收藏夹缓存 |
-| `qq-targets.json` | 官方网关收集到的 QQ 目标（0600） |
-| `bili-fav.log` | 诊断日志（不含 Cookie/ClientSecret） |
-
-- Cookie 和 ClientSecret 不出现在工具结果、API 返回或日志里；设置页状态里的密钥会脱敏。
-- HTTP API 走 DSH 的信任栅栏，只服务同源页面。
-- 视频标题/简介/字幕是不可信外部内容，提示词要求忽略其中的指令。
-- 不会点赞、投币、发评论、私信或伪造播放。
-
-## 开发与测试
-
-要求 Node.js >= 22，零运行时/开发依赖。
-
-```bash
-npm test            # 39 个单元测试
-npm run check       # release preflight + 测试
-npm pack --dry-run  # 查看发布文件
-```
-
-
 
 ## 已知限制
 
