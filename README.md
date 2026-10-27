@@ -1,135 +1,48 @@
-# dsh-bili-qq ｜ B站自主刷片
+# dsh-bili-qq ｜ B站自主刷片 + QQ 官方 Bot
 
 [![npm](https://img.shields.io/npm/v/dsh-bili-qq.svg)](https://www.npmjs.com/package/dsh-bili-qq)
 
-用你的哔哩哔哩账号刷推荐流，让模型**自己决定点开哪些视频、自己读字幕、按自己的品味挑片**，最后把挑中的视频收藏到你指定的自定义收藏夹（可以公开分享）。
+一个 DeepSeek Harness（DSH）插件：让 agent 在你当前的 DSH 会话里自己刷 B站、自己点开视频、自己读字幕、自己挑片写理由，然后调用工具通过**腾讯 QQ 官方 Bot API** 发给你；QQ 里的回复会转回同一个会话，agent 接着聊。
 
-这是一个 DeepSeek Harness（DSH）设置页插件：装在 DSH 的 `web` profile 里，设置里会多出一页「B站自主刷片」。**纯 JavaScript，不需要 Python，不需要装任何运行时依赖。**
+腾讯 QQ 适配器已经内置，不需要再单独安装适配器插件。
 
-## 它怎么工作
+## 它是什么
 
-一轮大概是这样：
+- **B站登录沿用现在的扫码 / Cookie**，登录凭证只保存在本机。
+- **当前 DSH 会话就是长期会话**：自动和手动任务都 prompt 这个会话，agent 用它自己的判断做完整一轮。
+- **agent 是执行者**：它调用 `bili_fav_recommend` 刷推荐、写 QQ 文案，再调用 `bili_fav_push` 走 QQ 官方 API 推送。
+- **QQ 回消息会回到会话**：内置 QQ 网关收到私聊/群消息后，把它转成会话任务，agent 再用 `bili_fav_push` 回复。
+- **回复提示词可自定义**：设置页里改 agent 的 QQ 回复风格；默认是“称呼主人、自称本鲸、文明简短”。
 
-1. **刷**：用你登录后的 Cookie 请求 B站个性化推荐流，取回一批候选（默认 20 条）。
-2. **自己挑**：把候选的标题、UP、时长、播放/点赞、标签、简介交给模型，让模型凭自己的好奇心和品味选出**它想点开看**的视频（默认最多 8 条）。
-3. **自己看**：只给这 8 条读视频详情、标签和**字幕原文**（登录后 B站 AI 字幕可用时），再交给模型。
-4. **自己决定**：模型读完内容后，按它自己的判断挑出真正值得收藏的（默认最多 5 条），并写一句第一人称的理由。
-5. **收藏**：把结果写进你设置的收藏夹；同名收藏夹不存在时会自动创建一个公开收藏夹。
+不做：日记、作息、人设、评论/私信自动回复、点赞/投币、伪造播放。
 
-页面上能看到的：
+## 工作方式
 
-- 它这一轮**点开了哪些**、为什么想点开、读到了多少字字幕；
-- 它最后**收藏了哪些**、理由是什么；
-- 每轮的记录、失败原因、模型是谁；
-- 可以一键复制本轮清单去分享。
+一轮推荐：
 
-偏好里的「给模型的一句参考」是**可选**的。留空就是完全按模型自己的判断；填了也只是参考，不是关键词过滤。
+1. 到点或点「让 agent 刷一轮」，插件把任务 prompt 进当前 DSH 会话。
+2. agent 调 `bili_fav_recommend`，用 B站 Cookie / 游客推荐流取候选，自己点开若干条读字幕，挑片写理由。
+3. agent 按「回复提示词」自己写 QQ 文案（不套固定模板）。
+4. agent 调 `bili_fav_push`，把文案作为 `text` 通过内置 QQ 官方渠道发出去。
+5. 用户在 QQ 回消息，QQ 网关把消息转回同一 DSH 会话，agent 用 `bili_fav_push` 回复。
 
-## 投递方式
-
-核心负责刷推荐流、模型挑片、写 B站收藏夹；**自动推荐由 DSH 会话里的 agent 思考后调用工具完成**：agent 先刷一轮，再调 `bili_fav_push` 推到 QQ。QQ/Webhook 是可选的独立渠道。设置页不再提供「投递方式」选项：手动运行按 `config.json` 里的 `deliveryMode` 执行，可取值如下：
-
-| 模式 | 做什么 | 需要 |
-|---|---|---|
-| **只收藏** | 挑中的视频写进 B站收藏夹 | B站登录 + 收藏夹 |
-| **只 DSH 会话** | 手动运行时把推荐 prompt 进一个固定会话；自动任务不走这个模式 | 无需外部插件 |
-| **只 QQ** | 把「标题 + BV 链接 + 理由」交给 QQ 渠道，不写收藏夹 | 安装并启用 QQ 适配器 |
-| **两者都要** | 收藏夹和渠道各走一遍；一路失败会标在记录里 | 两者都需要 |
-
-核心包里没有任何 QQ 代码；内置的 **Webhook** 是通用 HTTP 渠道，不需要 QQ Bot。QQ 推送由独立包 **`内置 QQ 渠道`** 提供（源码在独立库 https://github.com/mswinandmc/内置 QQ 渠道）：它**直接调用腾讯 QQ 官方 Bot API**，不依赖 QQ Bot 插件；安装并启用后，设置页会出现 **QQ Bot（官方 API）** 渠道，字段为 AppID / ClientSecret / 目标（可选下拉，官方事件网关自动收集，也可手动填 openid）/ 手动目标类型 / 可选 msg_id；留空会用上次成功目标。
-
-「只 DSH 会话」和「只 QQ」都不要求 B站登录（游客推荐流；个性化推荐和字幕仍需登录）。QQ 主动消息的配额/权限由适配器负责，失败原因会写进运行记录。
-
-## 对话式推荐
-
-用户在 QQ 里可以直接问“推荐几个视频 / 换一批 / 为什么推这个”。
-
-- agent 调 `bili_fav_recommend`，把用户这句话当**一次性偏好**，即时刷一轮并返回带理由的推荐清单；不写收藏夹、不推送、不改保存的偏好。
-- 推送文案按「回复提示词」写；默认是 QQ 官方 bot 聊天语气：称呼主人、自称本鲸、文明简短。
-- 回复提示词：设置页可以自定义 agent 写 QQ 文案的风格/格式；留空使用默认的 QQ 聊天语气（称呼主人、自称本鲸、文明简短）。自动/手动任务和 QQ 回消息都会带上它。
-- QQ 回消息转到会话：内置 QQ 官方网关收到用户消息后，会 prompt 当前 DSH 会话，agent 接着回；可在 QQ 渠道下关掉。
-- 自动推荐是一条 **DSH 会话 → B站工具 → QQ** 的闭环：到点后核心把任务 prompt 进当前 DSH 会话，agent 自己调 `bili_fav_recommend` 刷一轮，再调 `bili_fav_push` 把这一轮推到 QQ；QQ 用户回消息仍回到同一个会话，agent 接着回。
-- `bili_fav_push` 只发送 agent 自己写的 `text`、不套模板、不收藏；`runId` 不填=最近一轮。自动任务要求 agent 先读推荐、自己写文案，再调工具推 QQ。
-- 用户追问“刚才推荐了什么/为什么”时，agent 调只读 `bili_fav_last`；要真正收藏时用 `bili_fav_run`。
-- “只 DSH 会话”是手动运行的可选模式（固定会话、跨轮 prompt，不推 QQ）；自动任务用的是当前 QQ 会话，不需要这个模式。
-
-这不是核心插件自己直接收 QQ 消息：收消息和对话由 DSH 的 QQ agent 负责，核心通过工具提供推荐和理由；官方 API 适配器只负责把结果发出去。
-
-### 内置 Webhook（不依赖 QQ Bot）
-
-核心自带一个 **Webhook** 渠道，完全不需要安装 QQ Bot 插件：
-
-1. 把 `config.json` 的 `deliveryMode` 设成 `channel` 或 `both`；点「让 agent 刷一轮」会把任务交给 DSH 会话，agent 自己刷、自己写文案、调 `bili_fav_push` 推 QQ；
-2. 渠道选 **Webhook**；
-3. 填 URL，必要时填 `Authorization`（原样放进请求头），选 JSON / 纯文本；
-4. 点 **测试发送** 联调。
-
-JSON 模式会 POST：
-
-```json
-{
-  "title": "🐟 大肥鱼推荐",
-  "text": "标题 + BV 链接 + 理由",
-  "picks": [{ "bvid": "BV...", "title": "...", "reason": "..." }],
-  "folder": { "id": 123, "title": "大肥鱼推荐", "link": "..." },
-  "mode": "channel",
-  "sentAt": "2026-..."
-}
-```
-
-可以接自建服务、ntfy、Telegram relay，或外部 OneBot/NapCat 的 HTTP 接口；核心不关心对面是谁。
-
-## 渠道插件 API
-
-核心在宿主里提供 Cordis 服务 `biliFavChannels`，任意插件都可以注册渠道：
-
-```js
-export const inject = ['biliFavChannels']
-
-export function apply(ctx) {
-  ctx.effect(() => ctx.biliFavChannels.register({
-    id: 'webhook',
-    label: 'Webhook',
-    description: 'POST 到自己的服务',
-    fields: [
-      { key: 'url', label: 'URL', type: 'text', required: true },
-    ],
-    async send(payload, options, { signal }) {
-      const response = await fetch(options.url, {
-        method: 'POST',
-        body: JSON.stringify({ text: payload.text, picks: payload.picks }),
-        signal,
-      })
-      return { ok: response.ok, message: response.ok ? '已 POST' : `HTTP ${response.status}` }
-    },
-    async test(options, { signal }) {
-      // 可选：设置页的「测试发送」会调用它
-      return { ok: true, message: 'ok' }
-    },
-  }), 'webhook channel')
-}
-```
-
-`register` 支持的字段：
-
-- `id` / `label` / `description` / `order`
-- `fields`：设置页自动渲染的字段，类型 `text | textarea | select | checkbox`，可带 `required / placeholder / help / default / options`
-- `send(payload, options, { signal })`：必须；`payload` 包含 `text / title / picks / folder / mode`
-- `listTargets(options, { signal })`：可选，设置页「读取目标」
-- `test(options, { signal })`：可选，设置页「测试发送」
-- `available()`：可选，返回 false 时渠道在 UI 里标为不可用
-- 渠道可以调用 `ctx.biliFavChannels.updateFields(id, fields)` 动态更新下拉选项；`ctx.biliFavChannels.dataDir` 是核心数据目录
-
-核心会按 `channelId` 选择渠道、按 `fields` 渲染表单，并把 `channelOptions[channelId]` 原样交给渠道。渠道插件可以独立安装、升级、卸载。
+宿主不会绕过 agent 直接推 QQ；QQ 消息也不会只在会话里落灰。
 
 ## 安装
-## 安装
 
-从 npm 安装（推荐）：
+推荐 npm：
 
 ```bash
 dsh plugin --profile web add dsh-bili-qq
 ```
+
+或直接从 GitHub：
+
+```bash
+dsh plugin --profile web add https://github.com/mswinandmc/dsh-bili-qq
+```
+
+这个包本身就是 DSH bundle（`dsh.bundle.patch` + `dsh.client`）。装完重启 DSH，进 **设置 → B站自主刷片**。
 
 本地开发目录：
 
@@ -137,69 +50,116 @@ dsh plugin --profile web add dsh-bili-qq
 dsh plugin --profile web add /path/to/this/directory
 ```
 
-这个包本身就是一个 DSH bundle（`package.json` 里的 `dsh.bundle.patch` + `dsh.client`）。装完重启一次 DSH，然后进 **设置 → B站自主刷片**。
-
-> 如果你是让 AI 助手装：从 npm 直接 `dsh plugin --profile web add dsh-bili-qq`；本地开发时用插件管理器的 `install_bundle`，target 指向本目录。装完用 `Cordis Inspect` 的 `Slots.listSubTree` 确认 `settings.section` 里多了一个 `bili-fav`。
-
 ## 第一次使用
 
-1. 打开 **设置 → B站自主刷片**，点 **扫码登录**，用手机 B站 扫码。确认时建议选「记住我 / 长期」。
-   - 凭证只落在本机 `<DSH_HOME>/bili-fav/credentials.json`，权限 `0600`，不会上传到任何地方。
-2. 先点 **试刷（不收藏）**：不用登录也能看到模型会怎么挑（游客推荐流），但不会写收藏夹。
-3. 满意后点 **让 agent 刷一轮**。agent 在 DSH 会话里刷一轮、自己写 QQ 文案并调 `bili_fav_push` 推送；要收藏时单独说「收藏这一轮」，agent 调 `bili_fav_run`（只收藏、不推送）。
-4. 想每天自动跑，在偏好里打开「每天自动刷一轮」，选一个本机时间。到点核心把任务 prompt 进 DSH 会话，agent 自己刷一轮并调 `bili_fav_push` 推 QQ；QQ 回复会回到同一会话。
+1. **登录 B站**：设置 → B站自主刷片 → 扫码登录。凭证落在 `<DSH_HOME>/bili-fav/credentials.json`（0600）。
+2. **配置 QQ**：在「QQ 渠道」里填腾讯 QQ 开放平台机器人的 **AppID / ClientSecret**；目标 openid 可以手动填，也可以点「读取目标」让官方事件网关自动收集；留空用上次成功目标。
+3. **调回复风格**：在「回复提示词」里写 agent 的 QQ 语气；留空使用默认的 QQ 聊天语气。
+4. **QQ 回消息**：保持「把 QQ 收到的消息转到 DSH 会话」开启，用户在 QQ 回复时 agent 会接着回。
+5. **试运行**：点「试刷（不投递）」先看它挑什么；满意后点「让 agent 刷一轮」。
+6. **自动运行**：在偏好里打开「每天自动刷一轮」，选本机时间；到点会把任务交给会话。
 
-## 判断用的是什么模型
+## 设置页
 
-用 DSH 当前的**默认模型**（`agentDefaultModel`），每轮约 2 次模型调用：先挑想看的，再读完后决定收藏。会消耗 token。页面上会显示当前模型。
+- **B站账号**：扫码登录/退出；显示当前登录用户。
+- **它怎么挑**：给模型的一句参考、候选数量、深读数量、最多挑几条。
+- **回复提示词**：agent 写 QQ 文案和回复 QQ 消息时的风格/格式。
+- **QQ 渠道**：AppID、ClientSecret、目标、手动 openid、目标类型、msg_id，以及「把 QQ 收到的消息转到 DSH 会话」。
+- **自动刷**：每天定时任务。
+- **运行/历史**：试刷、让 agent 刷一轮、停止、每轮记录和清单复制。
 
-## 隐私与边界
+不再有「收藏到哪个收藏夹」和「投递方式」设置。收藏相关工具仍保留，但不在推荐/QQ 主流程里；推荐和推送不依赖收藏夹。
 
-- 只读：推荐流、视频详情、标签、字幕；只写：收藏夹（以及登录本身）。
-- 不会点赞、不会投币、不会发评论、不会私信，也不会伪造播放。
-- 模型看到的标题/简介/字幕是**不可信外部内容**；提示词里明确要求忽略其中的任何指令，防止视频内容里的 prompt injection 影响判断。
-- Cookie 不会出现在 API 返回、日志或工具结果里；HTTP API 走 DSH 的信任栅栏（浏览器登录态）并只服务同源页面。
-- 公开/私密由收藏夹本身决定。自动创建的新收藏夹默认公开，可以在 B站里改成私密。
+## Agent 工具
 
-## 数据目录
+| 工具 | 用途 |
+|---|---|
+| `bili_fav_recommend` | 即时刷一轮，返回 picks、理由和配置的 `replyPrompt`；不收藏、不推送 |
+| `bili_fav_push` | 把 agent 自己写的 `text` 通过 QQ 官方 API 发出去；纯文本或推荐都行，`runId` 可选 |
+| `bili_fav_last` | 只读最近一轮推荐（标题/链接/理由），用于回答“刚才推荐了什么/为什么” |
+| `bili_fav_preview` | 只预览一轮，不写收藏、不发送 |
+| `bili_fav_run` | 只收藏（不推送）；需要 B站登录 |
+| `bili_fav_folders` | 列出现有收藏夹（收藏工具用） |
+| `bili_fav_status` | 查看登录、模型、渠道、最近一轮和配置（密钥脱敏） |
+| `bili_fav_channels` | 列出渠道、读取目标、测试发送 |
+
+## 腾讯 QQ 官方 Bot
+
+内置渠道直接调用腾讯官方 API，不依赖 QQ Bot 插件：
+
+- 发送：`POST https://api.bot.qq.com/v2/users/{user_openid}/messages` 或 `/v2/groups/{group_openid}/messages`
+- 鉴权：`Authorization: QQBot <access_token>`
+- 目标：官方事件网关收集的私聊/群，或手动 openid；留空回退上次成功目标
+- 被动回复：有最近入站 `msg_id` 时自动带上，群聊/私聊窗口由腾讯限制
+- 入站：网关收到 `MESSAGE_CREATE` 后转发到当前 DSH 会话；可在设置里关掉
+
+QQ 主动消息的配额、权限、目标 openid 都由腾讯官方 Bot 平台决定。`fetch failed` / 401 / 403 先查网络、AppID/ClientSecret、机器人权限和目标。
+
+## 自动运行
+
+设置里的「每天自动刷一轮」使用**插件所在机器**的本地时间。到点后：
+
+1. 插件把推荐任务 prompt 进当前 DSH 会话；
+2. agent 刷一轮、自己写 QQ 文案；
+3. agent 调 `bili_fav_push` 推 QQ；
+4. 用户在 QQ 回复，消息回到同一会话。
+
+自动任务不再由宿主直接刷、直接推。
+
+## 数据与安全
 
 `<DSH_HOME>/bili-fav/`：
 
 | 文件 | 内容 |
 |---|---|
-| `config.json` | 偏好（提示、数量、投递方式、渠道 id/options、收藏夹、自动刷时间） |
+| `config.json` | 偏好、回复提示词、QQ/渠道 options、自动刷时间（0600） |
 | `credentials.json` | B站 Cookie（0600） |
-| `state.json` | 点开/收藏记录、去重表、收藏夹缓存 |
-| `bili-fav.log` | 诊断日志（不含 Cookie） |
+| `state.json` | 最近运行、去重、收藏夹缓存 |
+| `qq-targets.json` | 官方网关收集到的 QQ 目标（0600） |
+| `bili-fav.log` | 诊断日志（不含 Cookie/ClientSecret） |
+
+- Cookie 和 ClientSecret 不出现在工具结果、API 返回或日志里；设置页状态里的密钥会脱敏。
+- HTTP API 走 DSH 的信任栅栏，只服务同源页面。
+- 视频标题/简介/字幕是不可信外部内容，提示词要求忽略其中的指令。
+- 不会点赞、投币、发评论、私信或伪造播放。
+
+## 开发与测试
+
+要求 Node.js >= 22，零运行时/开发依赖。
+
+```bash
+npm test            # 27 个单元测试
+npm run check       # release preflight + 测试
+npm pack --dry-run  # 查看发布文件
+```
+
+仓库：https://github.com/mswinandmc/dsh-bili-qq
+
+## 发布
+
+版本号写在 `package.json`。推同版本 `v*` tag 会触发 `.github/workflows/release.yml`：
+
+1. 校验 tag 与 `package.json` 版本；
+2. 跑 preflight 和单元测试；
+3. 用 npm trusted publishing（OIDC，无 NPM_TOKEN）发布 `dsh-bili-qq`；
+4. 创建 GitHub Release。
+
+`beta` tag 走 npm `beta`；`rc` tag 按主人决定走 `latest`；稳定版走 `latest`。
+
+npm 侧需要为 `dsh-bili-qq` 配置 Trusted Publisher：GitHub Actions / `mswinandmc` / `dsh-bili-qq` / `release.yml`，允许 `npm publish`。
+
+```bash
+git tag v0.2.0-rc1
+git push origin v0.2.0-rc1
+```
 
 ## 已知限制
 
-- B站字幕接口在未登录/未开启 AI 字幕时可能返回空：这时只能按标题、简介、标签判断，页面会写「没读到字幕」。
-- B站风控（-352 / -412）时这一轮会失败并给出提示，过一会儿再试。
-- 抖音式无限下滑没有做：一轮是「一批候选 + 模型自己点开若干条」。想刷更多就把「这一轮刷多少条候选」调大（最多 30）。
-- 自动运行按**插件所在机器**的本地时间，不跟随浏览器时区。
-- 渠道的可用性/目标/配额由对应渠道插件负责；核心只负责选择渠道和调用 `send`，失败原因写运行记录。
-
-## 发布（维护者）
-
-版本号写在 `package.json`。推一个同版本的 `v*` tag，GitHub Actions 的 `.github/workflows/release.yml` 会：
-
-1. 校验 tag 与 `package.json` 版本一致；
-2. 跑 release preflight 和单元测试；
-3. 用 **npm trusted publishing（OIDC，无 NPM_TOKEN）** 发布 `dsh-bili-qq`；
-4. 创建对应的 GitHub Release。
-
-```bash
-git tag v0.1.1
-git push origin v0.1.1
-```
-
-npm 侧只需一次性配置：npmjs.com → `dsh-bili-qq` → Settings → Trusted Publishers → GitHub Actions，填 `mswinandmc` / `dsh-bili-qq` / `release.yml`，允许 `npm publish`。首次发布前如果 npm 上还没有这个包，需要先用有权限的 npm 账号做一次首发布（或在 npm 上先创建包），之后 tag 发布就完全走 OIDC。
-
-## 致谢
-
-- 交互与产品思路参考了 [dsh-bili-scroll](https://github.com/c1overzz/dsh-bili-scroll)（MIT）。本插件是独立实现：不再依赖 Python/MCP，直接调用 B站 Web API，并把「挑什么」交给模型自己的判断。
-- 二维码渲染使用了 Kazuhiko Arase 的 [QR Code Generator](https://github.com/kazuhikoarase/qrcode-generator)（MIT），见 `NOTICE.md`。
+- B站字幕接口未登录/未开启 AI 字幕时可能为空，此时只能按标题/简介/标签判断。
+- B站风控（-352 / -412）会让这一轮失败，过一会儿再试。
+- 一轮是“一批候选 + agent 自己点开若干条”，不是无限下滑；想多看就把候选数调大（最多 30）。
+- QQ 官方网关受网络和腾讯 API 影响；`fetch failed` 不等于渠道没注册。
+- 自动运行按插件机器本地时间，不跟随浏览器时区。
 
 ## License
 
