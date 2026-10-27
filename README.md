@@ -151,13 +151,13 @@ npm pack --dry-run  # 查看发布文件
 3. 用 npm trusted publishing（OIDC，无 NPM_TOKEN）发布 `dsh-bili-qq`；
 4. 创建 GitHub Release。
 
-`beta` tag 走 npm `beta`；`rc` tag 按主人决定走 `latest`；稳定版走 `latest`。
+`beta` tag 走 npm `beta`；`rc` tag 按主人决定走 `latest`；`pre` tag 走 `next`；稳定版走 `latest`。
 
 npm 侧需要为 `dsh-bili-qq` 配置 Trusted Publisher：GitHub Actions / `mswinandmc` / `dsh-bili-qq` / `release.yml`，允许 `npm publish`。
 
 ```bash
-git tag v0.2.0-rc1
-git push origin v0.2.0-rc1
+git tag v1.0.0-pre1
+git push origin v1.0.0-pre1
 ```
 
 ## 已知限制
