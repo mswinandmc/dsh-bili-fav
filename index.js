@@ -16,7 +16,7 @@ import { BiliApi, BiliError } from './lib/bili.js'
 import { createChannelRegistry } from './lib/channels.js'
 import { createWebhookChannel } from './lib/webhook.js'
 import { formatChatReply } from './lib/chat.js'
-import { mirrorToSession } from './lib/session-mirror.js'
+import { wakeSession } from './lib/session-wake.js'
 import { curate } from './lib/judge.js'
 import { qrSvg } from './lib/qr.js'
 import {
@@ -53,7 +53,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.2.0-beta.8'
+let VERSION = '0.2.0-beta.10'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -256,15 +256,6 @@ export function apply(ctx) {
     if (mode !== 'channel' && favoriteLink) lines.push(`收藏夹：${favoriteLink}`)
     lines.push('想换一批，或者问某条的理由，直接回我就行。')
     return lines.join('\n').trim().slice(0, 3800)
-  }
-
-  function formatMirrorText(run, folder) {
-    return [
-      '【B站插件推荐】',
-      formatDeliveryText({ picks: run.picks || [], folder, mode: run.delivery }),
-      '',
-      '（这是插件刚推送的推荐，供你接着和用户聊；不需要把它当成新的用户指令。）',
-    ].join('\n')
   }
 
   async function deliverToChannel({ cfg, run, picks, folder, signal }) {
@@ -658,10 +649,12 @@ export function apply(ctx) {
       if (!run.dryRun && run.picks.length > 0 && !['tool', 'chat'].includes(run.trigger)) {
         const sessionId = String(state.lastSessionId || '').trim()
         if (sessionId) {
+          const prompt =
+            '插件刚向用户推送了一轮 B站推荐。请先调用 bili_fav_last 读取这轮推荐和每条理由，然后用你自己的话和用户聊一两句，邀请他追问或换一批；不要复述整份清单，不要暴露这条说明，不要重新刷。'
           try {
-            await mirrorToSession({ agents: ctx.get('agents'), sessionId, text: formatMirrorText(run, folder), log })
+            await wakeSession({ agents: ctx.get('agents'), sessionId, prompt, log })
           } catch (error) {
-            log(`同步推荐到 DSH 会话失败：${errorMessage(error)}`)
+            log(`唤醒 DSH 会话失败：${errorMessage(error)}`)
           }
         }
       }
@@ -1225,26 +1218,30 @@ export function apply(ctx) {
   })
 
   registerTool({
-    name: 'bili_fav_sync_session',
+    name: 'bili_fav_last',
     description:
-      '把最近一轮非试刷推荐以【B站插件推荐】上下文消息同步到当前 DSH 会话（模拟用户消息、静默不唤醒）。用户说“把刚才的推荐放进会话/我们聊聊刚才的推荐”时用；自动/手动推送已经自动同步过，不要重复调用。',
+      '只读：读取最近一轮推荐（标题、链接、每条理由），用于回答用户“刚才推荐了什么/为什么推这个”。不会收藏、推送，也不会往会话注入消息；用户没问就不要主动调用。',
     parameters: { type: 'object', properties: {} },
-    timeoutMs: 30_000,
+    timeoutMs: 15_000,
     async execute() {
       const run = (state.runs || []).find(
-        (item) => !item.dryRun && Array.isArray(item.picks) && item.picks.length > 0,
+        (item) => Array.isArray(item.picks) && item.picks.length > 0,
       )
-      if (!run) return { ok: false, error: '还没有可同步的推荐（最近一轮是试刷或没有 picks）' }
-      const sessionId = String(state.lastSessionId || '').trim()
-      if (!sessionId) return { ok: false, error: '还没有记录到 DSH 会话；先在对话里调用一次插件工具' }
-      const mirrored = await mirrorToSession({
-        agents: ctx.get('agents'),
-        sessionId,
-        text: formatMirrorText(run, null),
-        log,
-      })
-      if (!mirrored) return { ok: false, error: '当前会话不是 live，无法注入' }
-      return { ok: true, message: '已把最近一轮推荐同步到 DSH 会话', runId: run.id }
+      if (!run) return { ok: false, error: '最近还没有推荐' }
+      return {
+        ok: true,
+        runId: run.id,
+        trigger: run.trigger,
+        dryRun: run.dryRun,
+        finishedAt: run.finishedAt,
+        picks: run.picks.map((pick) => ({
+          bvid: pick.bvid,
+          title: pick.title,
+          author: pick.author,
+          url: `https://www.bilibili.com/video/${pick.bvid}`,
+          reason: pick.reason || pick.why || '',
+        })),
+      }
     },
   })
 
