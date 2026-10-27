@@ -258,7 +258,14 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
             : {},
         readSubtitles: config.readSubtitles !== false,
         autoEnabled: Boolean(config.autoRun && config.autoRun.enabled),
-        autoTime: String((config.autoRun && config.autoRun.time) || '12:30'),
+        autoWindows: Array.isArray(config.autoRun?.windows)
+          ? config.autoRun.windows.map((window) => ({
+              start: String(window.start || '20:00'),
+              end: String(window.end || '22:00'),
+              wakes: Number(window.wakes) || 1,
+            }))
+          : [{ start: '20:00', end: '22:00', wakes: 1 }],
+        autoMinGap: Number(config.autoRun?.minGapMin) || 60,
       }
     }
 
@@ -273,7 +280,12 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
         channelId: form.channelId,
         channelOptions: form.channelOptions,
         readSubtitles: form.readSubtitles,
-        autoRun: { enabled: form.autoEnabled, time: form.autoTime },
+        autoRun: {
+          enabled: form.autoEnabled,
+          time: form.autoWindows?.[0]?.start || '20:00',
+          windows: form.autoWindows,
+          minGapMin: form.autoMinGap,
+        },
       }
     }
 
@@ -624,6 +636,15 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
     }) {
       if (!form) return null
       const update = (patch) => setForm((current) => ({ ...current, ...patch }))
+      const updateAutoWindow = (index, patch) => update({
+        autoWindows: (form.autoWindows || []).map((window, at) => (at === index ? { ...window, ...patch } : window)),
+      })
+      const addAutoWindow = () => update({
+        autoWindows: [...(form.autoWindows || []), { start: '20:00', end: '22:00', wakes: 1 }],
+      })
+      const removeAutoWindow = (index) => update({
+        autoWindows: (form.autoWindows || []).filter((_, at) => at !== index),
+      })
       const channels = Array.isArray(status?.channels) ? status.channels : []
       const externalChannels = channels.filter((item) => item.id === 'qq')
       const selectedChannel = externalChannels.find((item) => item.id === form.channelId) || null
@@ -745,7 +766,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
           h(
             'div',
             { 'data-bf-note': '' },
-            'agent 在 QQ 官方 bot 里回复时的风格和格式；留空使用默认的 QQ 聊天语气。',
+            'agent 在 QQ 官方 bot 里回复时的风格和格式，包括对用户的称呼和自称；留空使用默认的 QQ 聊天语气。',
           ),
           h('textarea', {
             'data-bf-input': '',
@@ -962,31 +983,90 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
             h(
               'div',
               { 'data-bf-col': '' },
-              h('div', { 'data-bf-label': '' }, '每天自动刷一轮'),
+              h('div', { 'data-bf-label': '' }, '自主唤醒（生物钟）'),
               h(
                 'div',
                 { 'data-bf-note': '' },
-                '按本机时间运行；DSH 开着才会跑。默认关，先手动试一次再开。',
+                '按本机时间在作息窗口里随机醒；DSH 开着才会跑。默认关，先手动试一次再开。',
               ),
             ),
             h(Switch, {
               checked: form.autoEnabled,
-              label: '每天自动刷一轮',
+              label: '自主唤醒（生物钟）',
               onChange: (value) => update({ autoEnabled: value }),
             }),
           ),
           form.autoEnabled
             ? h(
-                'div',
-                { 'data-bf-row': '' },
-                h('div', { 'data-bf-note': '' }, '每天这个时间：'),
-                h('input', {
-                  'data-bf-input': '',
-                  'data-bf-num': '',
-                  type: 'time',
-                  value: form.autoTime,
-                  onChange: (event) => update({ autoTime: event.target.value || '12:30' }),
-                }),
+                React.Fragment,
+                null,
+                h('div', { 'data-bf-label': '' }, '作息窗口'),
+                h(
+                  'div',
+                  { 'data-bf-note': '' },
+                  '每个窗口会随机醒 wakes 次；到点会用 sessionController.prompt 唤醒当前 DSH 会话，agent 自己刷/写/推 QQ。',
+                ),
+                (form.autoWindows || []).map((window, index) =>
+                  h(
+                    'div',
+                    { 'data-bf-row': '', key: `${index}-${window.start}-${window.end}` },
+                    h('input', {
+                      'data-bf-input': '',
+                      type: 'time',
+                      value: window.start,
+                      onChange: (event) => updateAutoWindow(index, { start: event.target.value || '20:00' }),
+                    }),
+                    h('span', { 'data-bf-note': '' }, '—'),
+                    h('input', {
+                      'data-bf-input': '',
+                      type: 'time',
+                      value: window.end,
+                      onChange: (event) => updateAutoWindow(index, { end: event.target.value || '22:00' }),
+                    }),
+                    h('input', {
+                      'data-bf-input': '',
+                      'data-bf-num': '',
+                      type: 'number',
+                      min: 1,
+                      max: 10,
+                      value: window.wakes,
+                      title: '这个窗口醒几次',
+                      onChange: (event) => updateAutoWindow(index, { wakes: Number(event.target.value) || 1 }),
+                    }),
+                    h(
+                      'button',
+                      {
+                        type: 'button',
+                        'data-bf-btn': '',
+                        'data-bf-danger': '',
+                        onClick: () => removeAutoWindow(index),
+                      },
+                      '删除',
+                    ),
+                  ),
+                ),
+                h(
+                  'button',
+                  { type: 'button', 'data-bf-btn': '', onClick: addAutoWindow },
+                  '加一个窗口',
+                ),
+                h(
+                  'div',
+                  { 'data-bf-row': '' },
+                  h('div', { 'data-bf-note': '', 'data-bf-grow': '' }, '最小唤醒间隔（分钟）'),
+                  h('input', {
+                    'data-bf-input': '',
+                    'data-bf-num': '',
+                    type: 'number',
+                    min: 10,
+                    max: 360,
+                    value: form.autoMinGap,
+                    onChange: (event) => update({ autoMinGap: Number(event.target.value) || 60 }),
+                  }),
+                ),
+                status?.autoPlan?.nextAt
+                  ? h('div', { 'data-bf-note': '' }, `今天下一次唤醒：${status.autoPlan.nextAt}`)
+                  : null,
               )
             : null,
         ),

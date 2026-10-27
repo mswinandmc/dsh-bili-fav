@@ -27,7 +27,10 @@ test('defaults use 大肥鱼推荐 and safe limits', () => {
   assert.equal(config.readSubtitles, true)
   assert.equal(config.replyPrompt, DEFAULT_CONFIG.replyPrompt)
   assert.equal(config.qqInbound, true)
-  assert.deepEqual(config.autoRun, { enabled: false, time: '12:30' })
+  assert.equal(config.autoRun.enabled, false)
+  assert.equal(config.autoRun.time, '20:00')
+  assert.deepEqual(config.autoRun.windows, [{ start: '20:00', end: '20:10', wakes: 1 }])
+  assert.equal(config.autoRun.minGapMin, 60)
 })
 
 test('clamps user values instead of trusting the form', () => {
@@ -50,7 +53,7 @@ test('clamps user values instead of trusting the form', () => {
   assert.equal(config.channelId.length, 40)
   assert.equal(config.channelOptions.qq.target.length, 500)
   assert.equal(config.autoRun.enabled, true)
-  assert.equal(config.autoRun.time, '12:30')
+  assert.equal(config.autoRun.time, '20:00')
 })
 
 test('config round-trips through the plugin home', () => {
