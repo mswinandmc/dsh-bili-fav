@@ -341,7 +341,7 @@ export function apply(ctx) {
       lines.push('')
     })
     if (mode !== 'channel' && mode !== 'session' && favoriteLink) lines.push(`收藏夹：${favoriteLink}`)
-    lines.push('想换一批，或者问某条的理由，直接回我就行。')
+    lines.push('想换一批，或者问某条的理由，直接回这条消息就行。')
     return lines.join('\n').trim().slice(0, 3800)
   }
 
