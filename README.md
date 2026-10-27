@@ -135,7 +135,7 @@ QQ 主动消息的配额、权限、目标 openid 都由腾讯官方 Bot 平台�
 要求 Node.js >= 22，零运行时/开发依赖。
 
 ```bash
-npm test            # 33 个单元测试
+npm test            # 34 个单元测试
 npm run check       # release preflight + 测试
 npm pack --dry-run  # 查看发布文件
 ```

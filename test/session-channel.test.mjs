@@ -35,6 +35,48 @@ test('creates/reuses one fixed session and prompts it', async () => {
   assert.equal(calls.filter((call) => call[0] === 'create').length, 2)
 })
 
+test('a conflicting session id is replaced with a new session under the plugin home', async () => {
+  const calls = []
+  const changed = []
+  const sc = {
+    async create(options) {
+      calls.push(['create', options])
+      if (options.sessionId === 'workspace-session') {
+        const error = new Error('session belongs to another directory')
+        error.code = 'session/conflict'
+        throw error
+      }
+    },
+    async rename(options) {
+      calls.push(['rename', options])
+    },
+    async prompt(request) {
+      calls.push(['prompt', request])
+    },
+  }
+  const ctx = { get: (name) => (name === 'sessionController' ? sc : undefined) }
+  const channel = createSessionChannel({
+    ctx,
+    home: '/tmp/bili-fav',
+    onSessionChanged: async (sessionId) => changed.push(sessionId),
+  })
+  const result = await channel.send(
+    { text: '推荐' },
+    { sessionId: 'workspace-session', title: '大肥鱼推荐' },
+  )
+  assert.notEqual(result.sessionId, 'workspace-session')
+  assert.match(result.sessionId, /^session_/)
+  assert.deepEqual(changed, [result.sessionId])
+  const creates = calls.filter((call) => call[0] === 'create')
+  assert.equal(creates.length, 2)
+  assert.deepEqual(creates[0], ['create', { sessionId: 'workspace-session', cwd: '/tmp/bili-fav' }])
+  assert.deepEqual(creates[1], ['create', { sessionId: result.sessionId, cwd: '/tmp/bili-fav' }])
+  const rename = calls.find((call) => call[0] === 'rename')
+  assert.equal(rename[1].sessionId, result.sessionId)
+  const prompt = calls.find((call) => call[0] === 'prompt')
+  assert.equal(prompt[1].sessionId, result.sessionId)
+})
+
 test('available is false without sessionController', async () => {
   const channel = createSessionChannel({ ctx: { get: () => undefined }, home: '/tmp' })
   assert.equal(channel.available(), false)

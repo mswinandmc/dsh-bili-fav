@@ -174,6 +174,8 @@ export function apply(ctx) {
   const log = makeLogger(files.log)
   const channels = createChannelRegistry()
   channels.dataDir = home
+  let config = loadConfig(home)
+  let state = loadState(home)
   let qqChannel = null
   try {
     qqChannel = createQQChannel({
@@ -228,7 +230,21 @@ export function apply(ctx) {
     log(`注册内置 QQ 渠道失败：${errorMessage(error)}`)
   }
   try {
-    channels.register(createSessionChannel({ ctx, home, log }))
+    channels.register(
+      createSessionChannel({
+        ctx,
+        home,
+        log,
+        onSessionChanged: async (sessionId) => {
+          const current = loadConfig(home)
+          const session = { ...(current.channelOptions?.session || {}), sessionId }
+          config = saveConfig(home, {
+            channelOptions: { ...(current.channelOptions || {}), session },
+          })
+          log(`会话渠道已切换到新的未分组会话 ${sessionId}`)
+        },
+      }),
+    )
   } catch (error) {
     log(`注册内置 DSH 会话渠道失败：${errorMessage(error)}`)
   }
@@ -243,8 +259,6 @@ export function apply(ctx) {
     log(`注册渠道服务失败：${errorMessage(error)}`)
   }
 
-  let config = loadConfig(home)
-  let state = loadState(home)
   if (qqChannel && config.qqInbound) {
     const qqOptions = config.channelOptions?.qq || {}
     if (qqOptions.appId && qqOptions.appSecret) {
