@@ -1488,7 +1488,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                   h(
                     'div',
                     { 'data-bf-hint': '' },
-                    `QQ 推送：不需要 B站登录${channelReady ? '' : ' · 请先在 QQ 渠道填好必填项'}`,
+                    `QQ 推送：建议登录 B站，不然访问可能会被 B站阻止${channelReady ? '' : ' · 请先在 QQ 渠道填好必填项'}`,
                   ),
                 ),
                 h(

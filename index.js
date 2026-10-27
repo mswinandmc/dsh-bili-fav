@@ -452,7 +452,7 @@ export function apply(ctx) {
       logTail: readTail(files.log, 1400),
       note: !api.loggedIn
         ? mode === 'channel' || mode === 'session'
-          ? `${mode === 'session' ? 'DSH 会话' : 'QQ'}模式不需要 B站登录：可以用游客推荐流；个性化推荐和字幕仍需要登录。`
+          ? `${mode === 'session' ? 'DSH 会话' : 'QQ'}模式建议登录 B站，不然访问可能会被 B站阻止；登录后个性化推荐和字幕也更完整。`
           : '未登录时可以「试刷」：用游客推荐流让模型挑一遍，不会写入收藏夹。'
         : mode !== 'favorite' && list.length === 0
           ? '还没有可用的 QQ 投递渠道；安装 dsh-bili-fav-qq 后再刷新。'
