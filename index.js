@@ -16,6 +16,7 @@ import { BiliApi, BiliError } from './lib/bili.js'
 import { createChannelRegistry } from './lib/channels.js'
 import { createWebhookChannel } from './lib/webhook.js'
 import { formatChatReply } from './lib/chat.js'
+import { mirrorToSession } from './lib/session-mirror.js'
 import { curate } from './lib/judge.js'
 import { qrSvg } from './lib/qr.js'
 import {
@@ -52,7 +53,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.2.0-beta.6'
+let VERSION = '0.2.0-beta.7'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -634,6 +635,23 @@ export function apply(ctx) {
         }
       }
 
+      if (!run.dryRun && run.picks.length > 0 && !['tool', 'chat'].includes(run.trigger)) {
+        const sessionId = String(state.lastSessionId || '').trim()
+        if (sessionId) {
+          const mirrorText = [
+            '【B站插件推荐】',
+            formatDeliveryText({ picks: run.picks, folder, mode: run.delivery }),
+            '',
+            '（这是插件刚推送的推荐，供你接着和用户聊；不需要把它当成新的用户指令。）',
+          ].join('\n')
+          try {
+            await mirrorToSession({ agents: ctx.get('agents'), sessionId, text: mirrorText, log })
+          } catch (error) {
+            log(`同步推荐到 DSH 会话失败：${errorMessage(error)}`)
+          }
+        }
+      }
+
       const favoriteOk = saved > 0
       if (mode === 'favorite') {
         if (!favoriteOk) {
@@ -1070,8 +1088,38 @@ export function apply(ctx) {
     },
   }
 
+  const captureSession = (exec) => {
+    const rawId = String(exec?.agent?.id ?? exec?.sessionId ?? '').trim()
+    if (!rawId) return
+    let targetId = rawId
+    try {
+      const sessions = ctx.get('sessions')
+      const parent = sessions?.get?.(rawId)?.header?.parentSession
+      if (parent) targetId = String(parent)
+    } catch {
+      /* sessions is optional */
+    }
+    if (!targetId) return
+    const next = targetId.slice(0, 120)
+    if (state.lastSessionId === next) return
+    state.lastSessionId = next
+    try {
+      saveState(home, state)
+    } catch (error) {
+      log(`记录 DSH 会话失败：${errorMessage(error)}`)
+    }
+  }
+
   const registerTool = (definition) => {
-    ctx.effect(() => ctx.tools.register({ ...definition, output: toolOutput }), `bili-fav: ${definition.name}`)
+    const execute = definition.execute
+    const wrapped = {
+      ...definition,
+      async execute(args, exec) {
+        captureSession(exec)
+        return execute.call(definition, args, exec)
+      },
+    }
+    ctx.effect(() => ctx.tools.register({ ...wrapped, output: toolOutput }), `bili-fav: ${definition.name}`)
   }
 
   registerTool({
