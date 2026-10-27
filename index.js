@@ -54,7 +54,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.2.0-beta.14'
+let VERSION = '0.2.0-beta.15'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -239,6 +239,18 @@ export function apply(ctx) {
     if (mode === 'channel') return '只 QQ'
     if (mode === 'both') return '收藏 + QQ'
     return '只收藏'
+  }
+
+  function agentRecommendationTask() {
+    return [
+      '【B站推荐任务】',
+      '请在当前 DSH 会话里完成这一轮：',
+      '1) 调用 bili_fav_recommend 刷一轮（message 写“按你的品味挑，带具体理由”；count 用偏好里的数量）；',
+      '2) 读返回的 picks/reasons，用你自己的话写一条给 QQ 用户的推荐文案（每条含标题、BV 链接、理由；不要提这条任务说明，不要原样复制模板）；',
+      '3) 调用 bili_fav_push，把这段文案作为 text 传入（channelId 用 qq，runId 用上一步的 run.id）；',
+      '4) 推送后只回一句简短确认，邀请用户追问或换一批。',
+      '不要直接输出整份清单，不要暴露任务说明，不要收藏。',
+    ].join('\n')
   }
 
   function formatDeliveryText({ picks, folder, mode }) {
@@ -725,7 +737,7 @@ export function apply(ctx) {
     }
   }
 
-  function startRun({ dryRun = false, count = null, trigger = 'manual', guidance = null } = {}) {
+  function startRun({ dryRun = false, count = null, trigger = 'manual', guidance = null, mode: modeOverride = null } = {}) {
     if (current) {
       return { ok: false, started: false, reason: 'running', message: '已经有一轮在跑了，等它结束。' }
     }
@@ -734,9 +746,11 @@ export function apply(ctx) {
     } catch (error) {
       log(`开始前读取配置失败：${errorMessage(error)}`)
     }
-    const mode = ['favorite', 'channel', 'both', 'session'].includes(config.deliveryMode)
-      ? config.deliveryMode
-      : 'session'
+    const mode = ['favorite', 'channel', 'both', 'session'].includes(modeOverride)
+      ? modeOverride
+      : ['favorite', 'channel', 'both', 'session'].includes(config.deliveryMode)
+        ? config.deliveryMode
+        : 'session'
     const doFavorite = mode === 'favorite' || mode === 'both'
     const doChannel = mode !== 'favorite'
     const effectiveChannelId = doChannel ? (mode === 'session' ? 'session' : config.channelId) : ''
@@ -1049,7 +1063,28 @@ export function apply(ctx) {
         const body = await readBody(req)
         const dryRun = Boolean(body?.dryRun)
         const count = body?.count === undefined ? null : body.count
-        const started = startRun({ dryRun, count, trigger: 'manual' })
+        if (!dryRun) {
+          const sessionId = String(state.lastSessionId || '').trim()
+          if (!sessionId) {
+            sendJson(res, 200, {
+              ok: false,
+              reason: 'no-session',
+              message: '还没有记录到 DSH 会话；先在 QQ 会话里和 agent 交互一次再点。',
+            })
+            return
+          }
+          void promptSession({ ctx, sessionId, text: agentRecommendationTask(), log }).catch((error) => {
+            log(`手动任务投递异常：${errorMessage(error)}`)
+          })
+          sendJson(res, 200, {
+            ok: true,
+            task: true,
+            sessionId,
+            message: '已交给 DSH 会话：agent 会刷一轮、自己写文案并调工具推 QQ。',
+          })
+          return
+        }
+        const started = startRun({ dryRun: true, count, trigger: 'manual' })
         const { promise, ...visible } = started
         sendJson(res, 200, visible)
         return
@@ -1323,7 +1358,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_run',
     description:
-      '让模型自己刷一轮 B站推荐流，按它自己的判断挑片，并按设置页里的投递方式处理：只收藏、只通过 QQ 推送、或两者都要。收藏需要 B站登录；QQ 推送需要安装并启用 dsh-bili-fav-qq。',
+      '只收藏：让模型自己刷一轮 B站推荐流，按它自己的判断挑片并写进收藏夹；不会推送 QQ。推送 QQ 请另用 bili_fav_push，且文案由你在会话里自己写。收藏需要 B站登录。',
     parameters: {
       type: 'object',
       properties: {
@@ -1336,7 +1371,7 @@ export function apply(ctx) {
     timeoutMs: 240_000,
     async execute(args, exec) {
       const count = args?.count === undefined ? null : clampInt(args.count, 1, 10, config.count)
-      const started = startRun({ dryRun: false, count, trigger: 'tool' })
+      const started = startRun({ dryRun: false, count, trigger: 'tool', mode: 'favorite' })
       if (!started.started) return { ok: false, ...started }
       const onAbort = () => abortRun()
       exec?.signal?.addEventListener?.('abort', onAbort, { once: true })
@@ -1424,15 +1459,7 @@ export function apply(ctx) {
           log(`到达定时时间 ${config.autoRun.time}，但还没有记录到 DSH 会话；等下一次用户交互`)
           return
         }
-        const task = [
-          '【B站自主刷片 · 定时任务】',
-          '到 B站推荐时间了。请在当前 DSH 会话里完成这一轮：',
-          '1) 调用 bili_fav_recommend 刷一轮（message 写“按你的品味挑，带具体理由”；count 用偏好里的数量）；',
-          '2) 读返回的 picks/reasons，用你自己的话写一条给 QQ 用户的推荐消息（每条含标题、BV 链接、理由；不要提这条任务说明，不要原样复制模板）；',
-          '3) 调用 bili_fav_push，把你写的这段文案作为 text 传入（channelId 用 qq，runId 用上一步的 run.id）；',
-          '4) 推送后只回一句简短确认，邀请用户追问或换一批。',
-          '不要直接输出整份清单，不要暴露这条任务说明，不要收藏。',
-        ].join('\n')
+        const task = agentRecommendationTask()
         void promptSession({ ctx, sessionId, text: task, log }).catch((error) => {
           log(`自动任务投递异常：${errorMessage(error)}`)
         })

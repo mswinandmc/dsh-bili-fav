@@ -1368,7 +1368,9 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
           }
           setNotice({
             tone: 'ok',
-            text: dryRun ? '开始试刷：只预览，不收藏、不推送' : '开始刷一轮，它正在自己挑',
+            text: dryRun
+              ? '开始试刷：只预览，不收藏、不推送'
+              : result.message || '已交给 DSH 会话：agent 会刷一轮、自己写文案并推 QQ',
           })
           await refresh()
         } catch (runError) {
@@ -1525,7 +1527,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
                         (needsSession && !sessionReady),
                       onClick: () => startRun(false),
                     },
-                    busy === 'run' ? '正在开始…' : '开始刷一轮',
+                    busy === 'run' ? '正在开始…' : '让 agent 刷一轮',
                   ),
                   h(
                     'button',
