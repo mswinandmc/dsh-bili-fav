@@ -46,7 +46,7 @@
 
 - agent 调 `bili_fav_recommend`，把用户这句话当**一次性偏好**，即时刷一轮并返回带理由的推荐清单；不写收藏夹、不推送、不改保存的偏好。
 - 自动推荐是一条 **DSH 会话 → B站工具 → QQ** 的闭环：到点后核心把任务 prompt 进当前 DSH 会话，agent 自己调 `bili_fav_recommend` 刷一轮，再调 `bili_fav_push` 把这一轮推到 QQ；QQ 用户回消息仍回到同一个会话，agent 接着回。
-- `bili_fav_push` 只推送、不收藏；`runId` 不填=最近一轮。它在 DSH 会话里由 agent 调用，不再由宿主直接推 QQ。
+- `bili_fav_push` 只发送 agent 自己写的 `text`、不套模板、不收藏；`runId` 不填=最近一轮。自动任务要求 agent 先读推荐、自己写文案，再调工具推 QQ。
 - 用户追问“刚才推荐了什么/为什么”时，agent 调只读 `bili_fav_last`；要真正收藏时用 `bili_fav_run`。
 - “只 DSH 会话”是手动运行的可选模式（固定会话、跨轮 prompt，不推 QQ）；自动任务用的是当前 QQ 会话，不需要这个模式。
 

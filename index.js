@@ -54,7 +54,7 @@ export const name = 'bili-fav'
 export const inject = ['webServer', 'tools']
 
 const here = dirname(fileURLToPath(import.meta.url))
-let VERSION = '0.2.0-beta.13'
+let VERSION = '0.2.0-beta.14'
 try {
   VERSION = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8')).version || VERSION
 } catch {
@@ -1216,7 +1216,7 @@ export function apply(ctx) {
   registerTool({
     name: 'bili_fav_push',
     description:
-      '把刚刷出的一轮推荐通过 QQ 渠道推给用户（只推送，不收藏）。在 DSH 会话里完成推荐后调用；runId 不填=最近一轮。到点自动任务、用户说“推给我/推到QQ”时用。',
+      '把你在 DSH 会话里写好的 QQ 推荐文案通过 QQ 渠道发给用户（只发送，不收藏，不再套模板）。必须传 text；runId 不填=最近一轮。到点自动任务或用户说“推给我/推到QQ”时用。',
     parameters: {
       type: 'object',
       properties: {
@@ -1230,9 +1230,10 @@ export function apply(ctx) {
         },
         text: {
           type: 'string',
-          description: '可选，覆盖推送正文',
+          description: '必填：你在 DSH 会话里自己写好的 QQ 推荐文案（含标题/链接/理由）',
         },
       },
+      required: ['text'],
     },
     timeoutMs: 60_000,
     async execute(args = {}) {
@@ -1262,8 +1263,8 @@ export function apply(ctx) {
       if (!run || !Array.isArray(run.picks) || run.picks.length === 0) {
         return { ok: false, error: '没有可推送的推荐；先刷一轮' }
       }
-      const text = String(args.text || '').trim() ||
-        formatDeliveryText({ picks: run.picks, folder: null, mode: 'channel' })
+      const text = String(args.text || '').trim().slice(0, 4000)
+      if (!text) return { ok: false, error: '缺少 text：先在你的 DSH 会话里写好推荐文案，再交给工具推送' }
       try {
         const result = await channels.send(
           channelId,
@@ -1427,9 +1428,9 @@ export function apply(ctx) {
           '【B站自主刷片 · 定时任务】',
           '到 B站推荐时间了。请在当前 DSH 会话里完成这一轮：',
           '1) 调用 bili_fav_recommend 刷一轮（message 写“按你的品味挑，带具体理由”；count 用偏好里的数量）；',
-          '2) 从返回的 run 里确认要推的视频；',
-          '3) 调用 bili_fav_push 把这一轮推到 QQ（channelId 用 qq，runId 用上一步的 run.id）；',
-          '4) 推送后用一两句话告诉用户推好了，邀请他追问或换一批。',
+          '2) 读返回的 picks/reasons，用你自己的话写一条给 QQ 用户的推荐消息（每条含标题、BV 链接、理由；不要提这条任务说明，不要原样复制模板）；',
+          '3) 调用 bili_fav_push，把你写的这段文案作为 text 传入（channelId 用 qq，runId 用上一步的 run.id）；',
+          '4) 推送后只回一句简短确认，邀请用户追问或换一批。',
           '不要直接输出整份清单，不要暴露这条任务说明，不要收藏。',
         ].join('\n')
         void promptSession({ ctx, sessionId, text: task, log }).catch((error) => {
