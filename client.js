@@ -1411,7 +1411,7 @@ textarea[data-bf-input]{resize:vertical;min-height:92px;line-height:19px;}
           h(
             'div',
             { 'data-bf-sub': '' },
-            '用你的 B站账号刷推荐流：agent 自己点开视频、读字幕、挑片写理由，然后调工具把「今天的鱼」推到 QQ。',
+            '用你的 B站账号刷推荐流：agent 自己点开视频、读字幕、挑片写理由，然后调工具把她推荐的视频推到 QQ。',
           ),
         ),
         h(Account, {
